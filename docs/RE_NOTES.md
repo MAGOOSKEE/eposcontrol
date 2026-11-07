@@ -120,3 +120,16 @@ Mic gain and side tone do not touch this block. They go through the Windows endp
 
 - Who creates the section when the official service is not running. Creating a Global section normally needs admin or a service. Plan: ship our own small service in the installer that owns these objects, or keep the official service installed and stopped from showing its UI.
 - Meaning of the flags at 0x42, 0x44, 0x46, 0x47 and the field at 0xB4.
+
+## Side tone (confirmed from a USB capture)
+
+Side tone is not a Windows audio control for this device. The official service sets it with the same HID output report 4 (SET_REPORT, 39 bytes, consumer collection) used for the knob light:
+
+`04 40 01 12 7B VV 00 ...`
+
+- `40` is the write command, `01` the length, `12 7B` the register address (0x127B), `VV` the value.
+- `VV` is a signed byte in dB: 0xC7 (-57 dB) is the minimum (side tone off, also the value at app start), 0x00 (0 dB) is the maximum. Intermediate values seen: 0xC9, 0xFD, 0xEF.
+- The knob light uses the same command with register `00 01` (see above).
+- Reads use command 0x20 (`04 20 01 00 <addr>`), sent in a burst at startup by the official service. Not needed for control.
+
+Capture summary: docs/captures/sidetone-requests.tsv, step times in docs/captures/sidetone-markers.csv.

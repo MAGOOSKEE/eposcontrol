@@ -18,6 +18,7 @@ export global Backend {
     in-out property <float> reverb;
     in-out property <int> voice;
     in-out property <float> gain;
+    in-out property <float> sidetone;
     in-out property <float> gate;
     in-out property <int> nc;
     in-out property <float> volume;
@@ -51,6 +52,7 @@ export global Backend {
     callback reverb-set(float);
     callback voice-set(int);
     callback gain-set(float);
+    callback sidetone-set(float);
     callback gate-set(float);
     callback nc-set(int);
     callback volume-set(float);
@@ -525,6 +527,15 @@ component MicPage inherits Rectangle {
         x: 32px;
         y: 154px;
         width: 450px;
+        label: "Side tone";
+        hint: "Hear your own voice in the headset";
+        Slim { x: parent.width - 220px; y: 12px; width: 170px; value <=> Backend.sidetone; changed(v) => { Backend.sidetone-set(v); } }
+        Mono { x: parent.width - 44px; y: 18px; width: 44px; text: Backend.sidetone <= 0.001 ? "OFF" : round(-57 + 57 * Backend.sidetone) + ""; horizontal-alignment: right; }
+    }
+    Row {
+        x: 32px;
+        y: 206px;
+        width: 450px;
         label: "Noise gate";
         hint: "Mutes sound below this level";
         Slim { x: parent.width - 220px; y: 12px; width: 170px; value <=> Backend.gate; changed(v) => { Backend.gate-set(v); } }
@@ -532,7 +543,7 @@ component MicPage inherits Rectangle {
     }
     Row {
         x: 32px;
-        y: 206px;
+        y: 258px;
         width: 450px;
         label: "Noise cancellation";
         hint: "Low, medium or high";
@@ -726,7 +737,7 @@ export component MainWindow inherits Window {
         width: Art.w;
         height: Art.h;
         source: @image-url("../../../assets/gsx300-top.svg");
-        opacity: root.page == 2 ? 1.0 : 0.16;
+        opacity: root.page == 2 ? 1.0 : 0.06;
     }
     // Knob light: ring and soft halo in the current knob colour.
     Rectangle {
@@ -737,7 +748,7 @@ export component MainWindow inherits Window {
         width: 300px;
         height: 300px;
         border-radius: 150px;
-        background: @radial-gradient(circle, Theme.accent.with-alpha(root.page == 2 ? 0.55 : 0.12) 0%, Theme.accent.with-alpha(0.0) 70%);
+        background: @radial-gradient(circle, Theme.accent.with-alpha(root.page == 2 ? 0.55 : 0.05) 0%, Theme.accent.with-alpha(0.0) 70%);
     }
     Rectangle {
         property <length> kx: root.width - Art.w - 24px + Art.w * Art.knob-fx;
@@ -748,7 +759,7 @@ export component MainWindow inherits Window {
         height: Art.w * Art.ring-r * 2;
         border-radius: Art.w * Art.ring-r;
         border-width: 3px;
-        border-color: Theme.accent.with-alpha(root.page == 2 ? 1.0 : 0.3);
+        border-color: Theme.accent.with-alpha(root.page == 2 ? 1.0 : 0.10);
     }
 
     Timer {

@@ -132,3 +132,11 @@ impl Gsx300 {
         serial
     }
 }
+
+impl Gsx300 {
+    /// Set the headset side tone in dB, from -57 (off) to 0 (maximum).
+    pub fn set_sidetone_db(&self, db: i8) -> Result<(), Error> {
+        let db = db.clamp(-57, 0);
+        self.send_raw(&[0x04, 0x40, 0x01, 0x12, 0x7B, db as u8])
+    }
+}

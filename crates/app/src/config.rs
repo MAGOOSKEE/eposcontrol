@@ -19,6 +19,8 @@ pub struct Config {
     pub voice: i32,
     pub gate: f32,
     pub nc: i32,
+    /// Side tone 0..1, mapped to -57..0 dB.
+    pub sidetone: f32,
 }
 
 impl Default for Config {
@@ -36,6 +38,7 @@ impl Default for Config {
             voice: 0,
             gate: 0.39,
             nc: 1,
+            sidetone: 0.0,
         }
     }
 }
@@ -75,6 +78,7 @@ impl Config {
                 "voice" => c.voice = v.parse().unwrap_or(c.voice),
                 "gate" => c.gate = v.parse().unwrap_or(c.gate),
                 "nc" => c.nc = v.parse().unwrap_or(c.nc),
+                "sidetone" => c.sidetone = v.parse().unwrap_or(c.sidetone),
                 "custom" => {
                     if let Some((name, eq)) = v.split_once('|') {
                         if let Some(eq) = parse_eq(eq) {
@@ -94,7 +98,7 @@ impl Config {
             let _ = std::fs::create_dir_all(dir);
         }
         let mut out = format!(
-            "action={}\nledmode={}\nnotifications={}\nparam={}\neq={}\npreset={}\nsurround={}\nreverb={}\nvoice={}\ngate={}\nnc={}\n",
+            "action={}\nledmode={}\nnotifications={}\nparam={}\neq={}\npreset={}\nsurround={}\nreverb={}\nvoice={}\ngate={}\nnc={}\nsidetone={}\n",
             self.action,
             self.led_mode,
             self.notifications as u8,
@@ -105,7 +109,8 @@ impl Config {
             self.reverb,
             self.voice,
             self.gate,
-            self.nc
+            self.nc,
+            self.sidetone
         );
         for (n, eq) in &self.customs {
             out.push_str(&format!("custom={}|{}\n", n.replace(['|', '\n', '\r'], " "), fmt_eq(eq)));
@@ -131,5 +136,12 @@ impl Config {
                 }
             }
         }
+    }
+}
+
+impl Config {
+    /// Side tone as the device value in dB (-57 off .. 0 max).
+    pub fn sidetone_db(&self) -> i8 {
+        (-57.0 + 57.0 * self.sidetone.clamp(0.0, 1.0)).round() as i8
     }
 }

@@ -26,6 +26,7 @@ type Shared = Arc<Mutex<Config>>;
 
 enum Cmd {
     SetLed(Led),
+    SetSidetone(i8),
 }
 
 /// Lazily connected handle to the audio driver block (UI thread only).
@@ -87,6 +88,7 @@ fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg
                 match Gsx300::open() {
                     Ok(d) => {
                         let _ = d.set_led(current_led());
+                        let _ = d.set_sidetone_db(cfg.lock().unwrap().sidetone_db());
                         dev = Some(d);
                         push_connected(true);
                     }
@@ -98,8 +100,11 @@ fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg
                 continue;
             };
             let mut lost = false;
-            while let Ok(Cmd::SetLed(l)) = rx.try_recv() {
-                lost |= d.set_led(l).is_err();
+            while let Ok(cmd) = rx.try_recv() {
+                lost |= match cmd {
+                    Cmd::SetLed(l) => d.set_led(l).is_err(),
+                    Cmd::SetSidetone(db) => d.set_sidetone_db(db).is_err(),
+                };
             }
             match d.read_raw(250) {
                 Ok(r) => {
@@ -253,6 +258,7 @@ fn main() {
         be.set_voice(c.voice);
         be.set_gate(c.gate);
         be.set_nc(c.nc);
+        be.set_sidetone(c.sidetone);
         be.set_action_index(c.action);
         be.set_action_param(c.param.clone().into());
         be.set_led_mode(c.led_mode);
@@ -425,6 +431,18 @@ fn main() {
         });
     }
     be.on_gain_set(move |v| audio::set_capture_volume(v));
+    {
+        let (cfg, tx, save) = (cfg.clone(), tx.clone(), schedule_save.clone());
+        be.on_sidetone_set(move |v| {
+            let db = {
+                let mut c = cfg.lock().unwrap();
+                c.sidetone = v;
+                c.sidetone_db()
+            };
+            let _ = tx.send(Cmd::SetSidetone(db));
+            save();
+        });
+    }
     {
         let (cfg, hw, save) = (cfg.clone(), hw.clone(), schedule_save.clone());
         be.on_gate_set(move |v| {
