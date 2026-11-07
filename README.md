@@ -33,7 +33,7 @@ Device detection, smart button handling, tray and startup toggle work. Audio pro
 - Fonts: Barlow, Barlow Semi Condensed and IBM Plex Mono (SIL Open Font License), in `assets/fonts`.
 - Icons: Material Symbols (Apache 2.0), in `assets/icons`.
 - The "E" mark used for the app and tray icon was extracted from the owner's own installed copy of the official software. Keep this repository private unless the logo's usage terms have been checked.
-- `assets/gsx300.svg` is a stand-in drawing. To use a photo, save it as `assets/gsx300.png`, point the `@image-url` in `crates/app/ui/main.slint` at it, and set `Art.knob-fx`, `Art.knob-fy` and `Art.ring-r` so the glow sits on the knob.
+- `assets/gsx300-top.svg` is the top view of the unit, traced from the product quick guide and recoloured. To use a photo instead, point the `@image-url` in `crates/app/ui/main.slint` at it, and set `Art.knob-fx`, `Art.knob-fy` and `Art.ring-r` so the glow sits on the knob.
 
 ## Knob light
 

@@ -88,11 +88,11 @@ global Theme {
 
 global Art {
     // Position and size of the device picture and the knob centre inside it.
-    out property <length> w: 520px;
-    out property <length> h: 292px;
-    out property <float> knob-fx: 0.719;
-    out property <float> knob-fy: 0.589;
-    out property <float> ring-r: 0.184;
+    out property <length> w: 251px;
+    out property <length> h: 470px;
+    out property <float> knob-fx: 0.4926;
+    out property <float> knob-fy: 0.2628;
+    out property <float> ring-r: 0.3297;
 }
 
 component Label inherits Text {
@@ -721,17 +721,17 @@ export component MainWindow inherits Window {
 
     // Device artwork. Dimmed on the control pages, full on settings.
     Image {
-        x: root.width - Art.w - 12px;
-        y: root.height - Art.h - 28px;
+        x: root.width - Art.w - 48px;
+        y: (root.height - Art.h) / 2 + 28px;
         width: Art.w;
         height: Art.h;
-        source: @image-url("../../../assets/gsx300.svg");
+        source: @image-url("../../../assets/gsx300-top.svg");
         opacity: root.page == 2 ? 1.0 : 0.16;
     }
     // Knob light: ring and soft halo in the current knob colour.
     Rectangle {
-        property <length> kx: root.width - Art.w - 12px + Art.w * Art.knob-fx;
-        property <length> ky: root.height - Art.h - 28px + Art.h * Art.knob-fy;
+        property <length> kx: root.width - Art.w - 48px + Art.w * Art.knob-fx;
+        property <length> ky: (root.height - Art.h) / 2 + 28px + Art.h * Art.knob-fy;
         x: self.kx - 150px;
         y: self.ky - 150px;
         width: 300px;
@@ -740,8 +740,8 @@ export component MainWindow inherits Window {
         background: @radial-gradient(circle, Theme.accent.with-alpha(root.page == 2 ? 0.55 : 0.12) 0%, Theme.accent.with-alpha(0.0) 70%);
     }
     Rectangle {
-        property <length> kx: root.width - Art.w - 12px + Art.w * Art.knob-fx;
-        property <length> ky: root.height - Art.h - 28px + Art.h * Art.knob-fy;
+        property <length> kx: root.width - Art.w - 48px + Art.w * Art.knob-fx;
+        property <length> ky: (root.height - Art.h) / 2 + 28px + Art.h * Art.knob-fy;
         x: self.kx - Art.w * Art.ring-r;
         y: self.ky - Art.w * Art.ring-r;
         width: Art.w * Art.ring-r * 2;
