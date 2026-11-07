@@ -95,7 +95,7 @@ impl Apo {
         });
     }
 
-    pub fn set_mic_eq(&self, gains_db: &[f32; 8], enabled: bool) {
+    pub fn set_mic_eq(&self, gains_db: &[f32; 9], enabled: bool) {
         self.locked(|b| {
             for (i, g) in gains_db.iter().enumerate() {
                 Self::put_f32(b, OFF_MIC_EQ + i * 4, g.clamp(-6.0, 6.0));

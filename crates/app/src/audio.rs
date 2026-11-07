@@ -1,4 +1,4 @@
-//! Windows audio endpoint helpers for the GSX 300: volume, mic gain, mic level.
+//! Windows audio endpoint helpers for the GSX 300: volume, mic gain and mute.
 //! All functions must be called from a thread that initialised COM.
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
@@ -7,10 +7,10 @@ use windows::Win32::Media::Audio::{
     eCapture, eConsole, eRender, EDataFlow, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
     DEVICE_STATE_ACTIVE,
 };
+use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_APARTMENTTHREADED, STGM_READ,
 };
-use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 
 pub fn init_com() {
     unsafe {
@@ -50,8 +50,8 @@ fn gsx_endpoint(flow: EDataFlow) -> Option<IMMDevice> {
     }
 }
 
-pub fn device_name(capture: bool) -> Option<String> {
-    gsx_endpoint(if capture { eCapture } else { eRender }).and_then(|d| friendly_name(&d))
+pub fn capture_endpoint() -> Option<IMMDevice> {
+    gsx_endpoint(eCapture)
 }
 
 fn volume_iface(flow: EDataFlow) -> Option<IAudioEndpointVolume> {
@@ -82,4 +82,18 @@ pub fn capture_volume() -> Option<f32> {
 }
 pub fn set_capture_volume(v: f32) {
     set(eCapture, v)
+}
+
+pub fn capture_muted() -> Option<bool> {
+    unsafe { volume_iface(eCapture)?.GetMute().ok().map(|m| m.as_bool()) }
+}
+
+/// Toggle the GSX 300 microphone mute and return the new state.
+pub fn toggle_capture_mute() -> Option<bool> {
+    let vol = volume_iface(eCapture)?;
+    unsafe {
+        let now = vol.GetMute().ok()?.as_bool();
+        vol.SetMute(!now, std::ptr::null()).ok()?;
+        Some(!now)
+    }
 }

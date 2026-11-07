@@ -1,11 +1,10 @@
+use epos_device::Led;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// Index into `actions::NAMES`.
-    pub action: i32,
-    /// Program path, URL or key combo, depending on the action.
-    pub param: String,
+    /// Smart button action, index into `actions::NAMES`.
+    pub button: i32,
     /// Knob light: 0 auto (blue in 2.0, red in 7.1), 1 off, 2 red, 3 blue, 4 violet.
     pub led_mode: i32,
     pub notifications: bool,
@@ -15,9 +14,9 @@ pub struct Config {
     pub customs: Vec<(String, [f32; 9])>,
     pub surround: bool,
     pub reverb: f32,
-    /// 0 off, 1 warm, 2 clear.
-    pub voice: i32,
+    pub mic_eq: [f32; 9],
     pub gate: f32,
+    /// Noise cancellation: 0 off, 1 low, 2 high.
     pub nc: i32,
     /// Side tone 0..1, mapped to -57..0 dB.
     pub sidetone: f32,
@@ -26,8 +25,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            action: 1,
-            param: String::new(),
+            button: 0,
             led_mode: 0,
             notifications: true,
             eq: [0.0; 9],
@@ -35,7 +33,7 @@ impl Default for Config {
             customs: Vec::new(),
             surround: false,
             reverb: 0.0,
-            voice: 0,
+            mic_eq: [0.0; 9],
             gate: 0.39,
             nc: 1,
             sidetone: 0.0,
@@ -67,17 +65,16 @@ impl Config {
             let Some((k, v)) = line.split_once('=') else { continue };
             let v = v.trim();
             match k.trim() {
-                "action" => c.action = v.parse().unwrap_or(c.action),
+                "button" => c.button = v.parse().unwrap_or(c.button).clamp(0, 2),
                 "ledmode" => c.led_mode = v.parse().unwrap_or(c.led_mode),
                 "notifications" => c.notifications = v != "0",
-                "param" => c.param = v.to_string(),
                 "eq" => c.eq = parse_eq(v).unwrap_or(c.eq),
+                "mic_eq" => c.mic_eq = parse_eq(v).unwrap_or(c.mic_eq),
                 "preset" => c.preset = v.parse().unwrap_or(c.preset),
                 "surround" => c.surround = v == "1",
                 "reverb" => c.reverb = v.parse().unwrap_or(c.reverb),
-                "voice" => c.voice = v.parse().unwrap_or(c.voice),
                 "gate" => c.gate = v.parse().unwrap_or(c.gate),
-                "nc" => c.nc = v.parse().unwrap_or(c.nc),
+                "nc" => c.nc = v.parse().unwrap_or(c.nc).clamp(0, 2),
                 "sidetone" => c.sidetone = v.parse().unwrap_or(c.sidetone),
                 "custom" => {
                     if let Some((name, eq)) = v.split_once('|') {
@@ -98,16 +95,15 @@ impl Config {
             let _ = std::fs::create_dir_all(dir);
         }
         let mut out = format!(
-            "action={}\nledmode={}\nnotifications={}\nparam={}\neq={}\npreset={}\nsurround={}\nreverb={}\nvoice={}\ngate={}\nnc={}\nsidetone={}\n",
-            self.action,
+            "button={}\nledmode={}\nnotifications={}\neq={}\nmic_eq={}\npreset={}\nsurround={}\nreverb={}\ngate={}\nnc={}\nsidetone={}\n",
+            self.button,
             self.led_mode,
             self.notifications as u8,
-            self.param.replace(['\r', '\n'], " "),
             fmt_eq(&self.eq),
+            fmt_eq(&self.mic_eq),
             self.preset,
             self.surround as u8,
             self.reverb,
-            self.voice,
             self.gate,
             self.nc,
             self.sidetone
@@ -117,12 +113,9 @@ impl Config {
         }
         let _ = std::fs::write(p, out);
     }
-}
 
-impl Config {
     /// The light the knob should show right now.
-    pub fn effective_led(&self) -> epos_device::Led {
-        use epos_device::Led;
+    pub fn effective_led(&self) -> Led {
         match self.led_mode {
             1 => Led::Off,
             2 => Led::Red,
@@ -137,9 +130,7 @@ impl Config {
             }
         }
     }
-}
 
-impl Config {
     /// Side tone as the device value in dB (-57 off .. 0 max).
     pub fn sidetone_db(&self) -> i8 {
         (-57.0 + 57.0 * self.sidetone.clamp(0.0, 1.0)).round() as i8
