@@ -18,6 +18,18 @@ Other EPOS and Sennheiser models that use the same EPOS audio driver could poten
 
 Reports and patches for other models are welcome.
 
+## Platforms
+
+| Platform | Download | What works |
+|---|---|---|
+| Windows 10 and 11 | `EposControl-Setup-<version>.exe` | Everything. This is the supported build. |
+| Linux (x86_64) | `EposControl-<version>-linux-x86_64.tar.gz` | The window and the hardware features: smart button, knob light, side tone. **Experimental and untested on real hardware.** |
+| macOS (Apple silicon and Intel) | `EposControl-<version>-macos-universal.zip` | Same as Linux. **Experimental and untested on real hardware.** |
+
+The equalizer, 2.0 and 7.1 surround, reverberation, noise gate, noise cancellation and the microphone effects run inside the EPOS audio driver, which only exists on Windows. On Linux and macOS those controls are shown but do nothing, and there is no tray icon: closing the window quits the app.
+
+Linux needs a udev rule so your user can talk to the device. Copy `70-eposcontrol.rules` from the archive to `/etc/udev/rules.d/`, then run `sudo udevadm control --reload-rules && sudo udevadm trigger` and replug the device. On macOS the app is not signed, so open it with right click, Open the first time.
+
 ## Features
 
 - Headphones: 9 band equalizer (hold Ctrl to snap to 0.5 dB), 2.0 and 7.1 audio mode, reverberation, sound test, saved and custom profiles.
@@ -78,3 +90,9 @@ EposControl is an unofficial project. It is not affiliated with, endorsed by or 
 - The installer can optionally bundle the audio driver files from the official installer, but the published builds do not.
 
 The software replaces a background service and writes to an audio driver's memory. Use it at your own risk.
+
+## License
+
+EposControl is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You can use, copy, modify and redistribute it freely for any noncommercial purpose. You may not use it, or anything derived from it, to make money in any form: no selling it, no paid products or services built on it, no ads or paid features around it. This is a source available license, not an OSI open source license.
+
+The license covers the original code in this repository. Third party material keeps its own terms: the EPOS and Sennheiser names, logo and device drawings belong to their owners (see above), and the Material Symbols icons are Apache 2.0.

@@ -23,6 +23,7 @@ export global Backend {
     in-out property <float> volume;
     in property <bool> mic-muted;
     in property <bool> window-visible: true;
+    in property <bool> audio-supported: true;
     in property <[float]> wave: [0, 0, 0, 0];
     in property <bool> connected;
     in property <string> version;
@@ -758,7 +759,7 @@ component HomePage inherits Rectangle {
 
 component HeadphonesPage inherits Rectangle {
     Label { x: 32px; y: 22px; text: "HEADPHONE EQUALIZER"; }
-    Text { x: parent.width - 32px - 300px; y: 20px; width: 300px; text: "Hold Ctrl to snap to 0.5 dB"; color: Theme.dim; font-family: Theme.body; font-size: 11px; horizontal-alignment: right; }
+    Text { x: parent.width - 32px - 560px; y: 20px; width: 560px; text: Backend.audio-supported ? "Hold Ctrl to snap to 0.5 dB" : "Audio effects need the EPOS Windows audio driver and are not available on this system"; color: Theme.dim; font-family: Theme.body; font-size: 11px; horizontal-alignment: right; }
     EqGraph {
         x: 32px;
         y: 56px;
@@ -835,7 +836,7 @@ component HeadphonesPage inherits Rectangle {
 
 component MicPage inherits Rectangle {
     Label { x: 32px; y: 22px; text: "MICROPHONE EQUALIZER"; }
-    Text { x: parent.width - 32px - 300px; y: 20px; width: 300px; text: "Hold Ctrl to snap to 0.5 dB"; color: Theme.dim; font-family: Theme.body; font-size: 11px; horizontal-alignment: right; }
+    Text { x: parent.width - 32px - 560px; y: 20px; width: 560px; text: Backend.audio-supported ? "Hold Ctrl to snap to 0.5 dB" : "Audio effects need the EPOS Windows audio driver and are not available on this system"; color: Theme.dim; font-family: Theme.body; font-size: 11px; horizontal-alignment: right; }
     EqGraph {
         x: 32px;
         y: 56px;

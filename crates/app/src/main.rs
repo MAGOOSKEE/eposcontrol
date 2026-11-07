@@ -1,14 +1,38 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod actions;
-mod apo;
-mod audio;
-mod audiotest;
 mod config;
-mod mictest;
-mod official;
+mod platform;
 mod presets;
+
+// Windows has the real audio driver control; other systems get inert stand-ins.
+#[cfg(windows)]
+mod apo;
+#[cfg(windows)]
+mod audio;
+#[cfg(windows)]
+mod audiotest;
+#[cfg(windows)]
+mod mictest;
+#[cfg(windows)]
+mod official;
+#[cfg(windows)]
 mod service;
+#[cfg(not(windows))]
+#[path = "stub/apo.rs"]
+mod apo;
+#[cfg(not(windows))]
+#[path = "stub/audio.rs"]
+mod audio;
+#[cfg(not(windows))]
+#[path = "stub/audiotest.rs"]
+mod audiotest;
+#[cfg(not(windows))]
+#[path = "stub/mictest.rs"]
+mod mictest;
+#[cfg(not(windows))]
+#[path = "stub/official.rs"]
+mod official;
 
 use apo::Apo;
 use config::Config;
@@ -20,13 +44,6 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SystemParametersInfoW, GWL_EXSTYLE, SPI_GETWORKAREA,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-};
 
 slint::include_modules!();
 
@@ -65,18 +82,6 @@ fn knob_rgb(led: Led) -> (u8, u8, u8) {
 fn knob_color(led: Led) -> Color {
     let (r, g, b) = knob_rgb(led);
     Color::from_rgb_u8(r, g, b)
-}
-
-/// The EPOS mark for the tray, tinted with the current knob colour.
-fn tray_icon_image(led: Led) -> Icon {
-    let (r, g, b) = knob_rgb(led);
-    let mut rgba = include_bytes!("../../../assets/tray-32.rgba").to_vec();
-    for px in rgba.chunks_exact_mut(4) {
-        px[0] = r;
-        px[1] = g;
-        px[2] = b;
-    }
-    Icon::from_rgba(rgba, 32, 32).expect("icon")
 }
 
 fn fmt_time(secs: f32) -> String {
@@ -221,40 +226,10 @@ impl Toast {
         self.win.set_accent(color);
         let _ = self.win.show();
         if !self.styled.get() {
-            self.win.window().with_winit_window(|w| {
-                use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                if let Ok(h) = w.window_handle() {
-                    if let RawWindowHandle::Win32(h32) = h.as_raw() {
-                        let hwnd = HWND(h32.hwnd.get() as *mut _);
-                        unsafe {
-                            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                            SetWindowLongPtrW(
-                                hwnd,
-                                GWL_EXSTYLE,
-                                ex | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
-                            );
-                        }
-                    }
-                }
-            });
+            platform::style_toast(&self.win);
             self.styled.set(true);
         }
-        let mut work = RECT::default();
-        unsafe {
-            let _ = SystemParametersInfoW(
-                SPI_GETWORKAREA,
-                0,
-                Some(&mut work as *mut RECT as *mut _),
-                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-            );
-        }
-        let size = self.win.window().size();
-        let scale = self.win.window().scale_factor();
-        let margin = (24.0 * scale) as i32;
-        self.win.window().set_position(slint::PhysicalPosition::new(
-            work.left + margin,
-            work.bottom - size.height as i32 - margin,
-        ));
+        platform::position_toast(&self.win);
         let w = self.win.as_weak();
         self.hide.start(TimerMode::SingleShot, Duration::from_millis(2200), move || {
             if let Some(w) = w.upgrade() {
@@ -264,57 +239,35 @@ impl Toast {
     }
 }
 
-/// Run this exe again with admin rights (UAC prompt) and wait for it to finish.
-fn run_elevated_and_wait(arg: &str) {
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::WaitForSingleObject;
-    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    let Ok(exe) = std::env::current_exe() else { return };
-    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
-    let (file, params, verb) = (wide(&exe.to_string_lossy()), wide(arg), wide("runas"));
-    let mut info = SHELLEXECUTEINFOW {
-        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS,
-        lpVerb: PCWSTR(verb.as_ptr()),
-        lpFile: PCWSTR(file.as_ptr()),
-        lpParameters: PCWSTR(params.as_ptr()),
-        nShow: 0,
-        ..Default::default()
-    };
-    unsafe {
-        if ShellExecuteExW(&mut info).is_ok() && !info.hProcess.is_invalid() {
-            WaitForSingleObject(info.hProcess, 60_000);
-            let _ = CloseHandle(info.hProcess);
-        }
-    }
-}
-
 fn main() {
-    if std::env::args().any(|a| a == "--service") {
-        service::run();
-        return;
-    }
-    if std::env::args().any(|a| a == "--disable-official") {
-        official::disable();
-        return;
-    }
-    if std::env::args().any(|a| a == "--restore-official") {
-        official::restore();
-        return;
+    #[cfg(windows)]
+    {
+        if std::env::args().any(|a| a == "--service") {
+            service::run();
+            return;
+        }
+        if std::env::args().any(|a| a == "--disable-official") {
+            official::disable();
+            return;
+        }
+        if std::env::args().any(|a| a == "--restore-official") {
+            official::restore();
+            return;
+        }
     }
     let guard = single_instance::SingleInstance::new("EposControl-single-instance").ok();
     if guard.as_ref().is_some_and(|g| !g.is_single()) {
         return;
     }
-    let minimized = std::env::args().any(|a| a == "--minimized");
+    // Without a tray icon a hidden window could not be reopened, so only hide where there is one.
+    let minimized = platform::HAS_TRAY && std::env::args().any(|a| a == "--minimized");
     audio::init_com();
 
     let cfg: Shared = Arc::new(Mutex::new(Config::load()));
     let ui = MainWindow::new().expect("window");
     let hw = Rc::new(Hw(RefCell::new(None)));
     let toast = Rc::new(Toast::new());
-    let tray: Rc<RefCell<Option<TrayIcon>>> = Rc::new(RefCell::new(None));
+    let tray: Rc<RefCell<Option<platform::Tray>>> = Rc::new(RefCell::new(None));
     let (tx, rx) = mpsc::channel::<Cmd>();
 
     // Debounced save so dragging sliders does not write the file continuously.
@@ -351,6 +304,7 @@ fn main() {
     be.set_volume(audio::render_volume().unwrap_or(0.5));
     be.set_mic_muted(audio::capture_muted().unwrap_or(false));
     be.set_window_visible(!minimized);
+    be.set_audio_supported(cfg!(windows));
     be.set_official_issue(official::check().summary().into());
     let official_timer = Timer::default();
     {
@@ -371,7 +325,7 @@ fn main() {
             ui.global::<Backend>().set_official_busy(true);
             let weak = w.clone();
             std::thread::spawn(move || {
-                run_elevated_and_wait("--disable-official");
+                platform::run_elevated_and_wait("--disable-official");
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = weak.upgrade() {
                         let be = ui.global::<Backend>();
@@ -409,7 +363,7 @@ fn main() {
                 ui.global::<Backend>().set_knob_color(knob_color(led));
             }
             if let Some(t) = tray.borrow().as_ref() {
-                let _ = t.set_icon(Some(tray_icon_image(led)));
+                t.set_icon(led);
             }
         })
     };
@@ -941,16 +895,15 @@ fn main() {
                 ui.global::<Backend>().set_window_visible(false);
                 let _ = ui.hide();
             }
+            // Without a tray icon there is nothing to reopen the window from, so closing quits.
+            if !platform::HAS_TRAY {
+                let _ = slint::quit_event_loop();
+            }
         });
     }
     spawn_device_thread(ui.as_weak(), rx, cfg.clone());
 
-    // Tray.
-    let open = MenuItem::new("Open EposControl", true, None);
-    let quit = MenuItem::new("Quit", true, None);
-    let menu = Menu::new();
-    let _ = menu.append_items(&[&open, &quit]);
-    let (open_id, quit_id) = (open.id().clone(), quit.id().clone());
+    // Tray (Windows only).
     let show = {
         let w = ui.as_weak();
         move || {
@@ -964,38 +917,8 @@ fn main() {
             });
         }
     };
-    {
-        let show = show.clone();
-        MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
-            if e.id == open_id {
-                show();
-            } else if e.id == quit_id {
-                let _ = slint::invoke_from_event_loop(|| {
-                    let _ = slint::quit_event_loop();
-                });
-            }
-        }));
-    }
-    TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
-        if let TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-        } = e
-        {
-            show();
-        }
-    }));
     let led_now = cfg.lock().unwrap().effective_led();
-    *tray.borrow_mut() = Some(
-        TrayIconBuilder::new()
-            .with_tooltip("EposControl")
-            .with_icon(tray_icon_image(led_now))
-            .with_menu(Box::new(menu))
-            .with_menu_on_left_click(false)
-            .build()
-            .expect("tray"),
-    );
+    *tray.borrow_mut() = Some(platform::Tray::new(led_now, show));
 
     if !minimized {
         ui.show().expect("show");

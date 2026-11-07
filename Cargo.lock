@@ -1035,14 +1035,14 @@ dependencies = [
 
 [[package]]
 name = "epos-device"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hidapi",
 ]
 
 [[package]]
 name = "eposcontrol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "auto-launch",
  "embed-resource",

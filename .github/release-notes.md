@@ -1,4 +1,4 @@
-First public release of EposControl, an unofficial, lightweight replacement for EPOS Gaming Suite.
+EposControl, an unofficial, lightweight replacement for EPOS Gaming Suite.
 
 ## Supported hardware
 
@@ -15,16 +15,24 @@ Other EPOS and Sennheiser models that use the same EPOS audio driver might work 
 - Runs hidden in the tray, starts with Windows if you want, tiny memory and CPU use
 - Detects the official EPOS Gaming Suite and turns off its app, service and startup entry (reversible)
 
-## Install
+## Downloads
 
-1. Download `EposControl-Setup-0.1.0.exe` below and run it as administrator.
+- **Windows 10 and 11**: `EposControl-Setup-<version>.exe`. Full features. This is the supported build.
+- **Linux (x86_64)**: `EposControl-<version>-linux-x86_64.tar.gz`. Experimental.
+- **macOS (Apple silicon and Intel)**: `EposControl-<version>-macos-universal.zip`. Experimental.
+
+The Linux and macOS builds only do the hardware features (smart button, knob light, side tone). The equalizer, surround, reverb and microphone effects need the EPOS audio driver, which only exists on Windows, and they have not been tried on real hardware on those systems. There is no tray icon there.
+
+## Install on Windows
+
+1. Download the installer below and run it as administrator.
 2. The EPOS audio driver must already be installed. Installing the official EPOS Gaming Suite once does that.
 3. Keep the "Turn off the official EPOS Gaming Suite" and "Restart the Windows audio service" options ticked the first time.
 
-The installer is not code signed, so Windows SmartScreen will warn you. Choose More info, then Run anyway.
+The installer is not code signed, so Windows SmartScreen will warn you. Choose More info, then Run anyway. Uninstalling EposControl turns the official EPOS software back on.
 
-Uninstalling EposControl turns the official EPOS software back on.
+## License and notes
 
-## Notes
+Free to use, copy, modify and redistribute for noncommercial purposes only (PolyForm Noncommercial 1.0.0, see LICENSE). No commercial use of any kind.
 
-Unofficial project, not affiliated with or endorsed by EPOS or Sennheiser. It installs a small Windows service that replaces the official background service. Use at your own risk.
+Unofficial project, not affiliated with or endorsed by EPOS or Sennheiser. On Windows it installs a small service that replaces the official background service. Use at your own risk.

@@ -1,17 +1,34 @@
 [package]
 name = "eposcontrol"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 build = "build.rs"
+description = "Unofficial, lightweight replacement for EPOS Gaming Suite (GSX 300)"
+license-file = "../../LICENSE"
+
+[features]
+# Research tools that are not part of the normal build.
+research = []
+
+[[bin]]
+name = "eposcontrol"
+path = "src/main.rs"
+
+[[bin]]
+name = "topo"
+path = "src/bin/topo.rs"
+required-features = ["research"]
 
 [dependencies]
 epos-device = { path = "../epos-device" }
 slint = { version = "1", default-features = false, features = ["std", "backend-winit", "renderer-software", "software-renderer-systemfonts", "compat-1-2", "unstable-winit-030"] }
-tray-icon = { version = "0.21", default-features = false }
 auto-launch = "0.5"
 single-instance = "0.3"
-windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_Foundation", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Devices_FunctionDiscovery", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Shell", "Win32_System_Memory", "Win32_System_Threading", "Win32_Security", "Win32_Media_Multimedia", "Win32_UI_WindowsAndMessaging", "Win32_Security_Authorization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry"] }
+
+[target.'cfg(windows)'.dependencies]
+tray-icon = { version = "0.21", default-features = false }
 windows-service = "0.8.1"
+windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_Foundation", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Devices_FunctionDiscovery", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Shell", "Win32_System_Memory", "Win32_System_Threading", "Win32_Security", "Win32_Media_Multimedia", "Win32_UI_WindowsAndMessaging", "Win32_Security_Authorization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry"] }
 
 [build-dependencies]
 slint-build = "1"

@@ -1,7 +1,15 @@
 [package]
 name = "epos-device"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+description = "HID control of the EPOS GSX 300"
+license-file = "../../LICENSE"
 
-[dependencies]
+[target.'cfg(windows)'.dependencies]
 hidapi = { version = "2", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+hidapi = { version = "2", default-features = false, features = ["linux-static-hidraw"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+hidapi = { version = "2", default-features = false, features = ["macos-shared-device"] }

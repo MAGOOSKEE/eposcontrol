@@ -1,4 +1,4 @@
-name: Build installer
+name: Build
 
 on:
   push:
@@ -10,34 +10,126 @@ permissions:
   contents: write
 
 jobs:
-  windows-installer:
+  windows:
+    name: Windows installer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
-
       - name: Build the installer
         shell: pwsh
         run: ./scripts/build-installer.ps1
-
-      - name: Keep the installer as a build artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: EposControl-Setup
+          name: windows
           path: dist/EposControl-Setup-*.exe
           if-no-files-found: error
 
-      - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+  linux:
+    name: Linux (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libudev-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libfontconfig1-dev
+      - name: Build
+        run: cargo build --release -p eposcontrol
+      - name: Package
+        run: |
+          version=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
+          name="EposControl-${version}-linux-x86_64"
+          mkdir -p "dist/${name}"
+          cp target/release/eposcontrol "dist/${name}/"
+          cp LICENSE README.md "dist/${name}/"
+          cp packaging/linux/70-eposcontrol.rules "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          rm -rf "dist/${name}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    name: macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build both architectures
+        run: |
+          cargo build --release -p eposcontrol --target aarch64-apple-darwin
+          cargo build --release -p eposcontrol --target x86_64-apple-darwin
+      - name: Make the app bundle
+        run: |
+          version=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
+          app="dist/EposControl.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          lipo -create \
+            target/aarch64-apple-darwin/release/eposcontrol \
+            target/x86_64-apple-darwin/release/eposcontrol \
+            -output "$app/Contents/MacOS/eposcontrol"
+          iconset=$(mktemp -d)/EposControl.iconset
+          mkdir -p "$iconset"
+          for s in 16 32 64 128 256; do
+            sips -z $s $s assets/icon-256.png --out "$iconset/icon_${s}x${s}.png" >/dev/null
+          done
+          cp "$iconset/icon_32x32.png" "$iconset/icon_16x16@2x.png"
+          cp "$iconset/icon_64x64.png" "$iconset/icon_32x32@2x.png"
+          cp "$iconset/icon_256x256.png" "$iconset/icon_128x128@2x.png"
+          iconutil -c icns "$iconset" -o "$app/Contents/Resources/EposControl.icns"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>EposControl</string>
+            <key>CFBundleDisplayName</key><string>EposControl</string>
+            <key>CFBundleIdentifier</key><string>com.eposcontrol.app</string>
+            <key>CFBundleExecutable</key><string>eposcontrol</string>
+            <key>CFBundleIconFile</key><string>EposControl</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${version}</string>
+            <key>CFBundleVersion</key><string>${version}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          cp LICENSE "$app/Contents/Resources/LICENSE"
+          ditto -c -k --keepParent "$app" "dist/EposControl-${version}-macos-universal.zip"
+          rm -rf "$app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
         with:
           name: EposControl ${{ github.ref_name }}
           body_path: .github/release-notes.md
-          files: dist/EposControl-Setup-*.exe
+          files: dist/*

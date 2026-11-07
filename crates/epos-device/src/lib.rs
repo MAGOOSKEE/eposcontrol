@@ -83,13 +83,13 @@ impl Gsx300 {
     /// Open both HID collections of the GSX 300.
     pub fn open() -> Result<Self, Error> {
         let api = HidApi::new()?;
-        let find = |page: u16| {
-            api.device_list()
-                .find(|d| d.vendor_id() == VID && d.product_id() == PID && d.usage_page() == page)
-                .ok_or(Error::NotFound)
-        };
-        let reader = find(USAGE_PAGE_VENDOR)?.open_device(&api)?;
-        let writer = find(USAGE_PAGE_CONSUMER)?.open_device(&api)?;
+        let ours = || api.device_list().filter(|d| d.vendor_id() == VID && d.product_id() == PID);
+        let by_page = |page: u16| ours().find(|d| d.usage_page() == page);
+        // Windows exposes every collection as its own device. Other systems can present the whole
+        // HID interface as one node, so fall back to that node for both directions.
+        let any = ours().find(|d| d.interface_number() == 3).or_else(|| ours().next());
+        let reader = by_page(USAGE_PAGE_VENDOR).or(any).ok_or(Error::NotFound)?.open_device(&api)?;
+        let writer = by_page(USAGE_PAGE_CONSUMER).or(any).ok_or(Error::NotFound)?.open_device(&api)?;
         Ok(Self { reader, writer })
     }
 

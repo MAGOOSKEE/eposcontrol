@@ -47,8 +47,16 @@ impl Default for Config {
 }
 
 fn path() -> Option<PathBuf> {
-    let base = std::env::var_os("APPDATA")?;
-    Some(PathBuf::from(base).join("EposControl").join("config.txt"))
+    #[cfg(windows)]
+    let base = PathBuf::from(std::env::var_os("APPDATA")?);
+    #[cfg(target_os = "macos")]
+    let base = PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support");
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    let base = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(x) if !x.is_empty() => PathBuf::from(x),
+        _ => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
+    };
+    Some(base.join("EposControl").join("config.txt"))
 }
 
 fn parse_eq(s: &str) -> Option<[f32; 9]> {

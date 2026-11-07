@@ -17,6 +17,7 @@ ArchitecturesAllowed=x64compatible
 OutputDir=..\dist
 OutputBaseFilename=EposControl-Setup-{#AppVersion}
 SetupIconFile=..\assets\eposcontrol.ico
+LicenseFile=..\LICENSE
 UninstallDisplayIcon={app}\eposcontrol.exe
 Compression=lzma2
 SolidCompression=yes
@@ -33,6 +34,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "staging\eposcontrol.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 ; Optional: official driver files, staged by build-installer.ps1 when -OfficialMsi is given.
 Source: "staging\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist; Tasks: installdriver
 
