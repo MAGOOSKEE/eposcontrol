@@ -1036,6 +1036,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tray-icon",
+ "windows",
 ]
 
 [[package]]

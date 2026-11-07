@@ -1,16 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use epos_device::{Gsx300, State};
-use slint::ComponentHandle;
+mod actions;
+mod config;
+
+use config::Config;
+use epos_device::{Gsx300, Led};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 slint::include_modules!();
 
+type Shared = Arc<Mutex<Config>>;
+
 enum Cmd {
-    Surround(bool),
+    SetLed(Led),
 }
 
 fn tray_icon_image() -> Icon {
@@ -42,56 +49,65 @@ fn autolaunch() -> Option<auto_launch::AutoLaunch> {
         .ok()
 }
 
-fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>) {
+fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg: Shared) {
     std::thread::spawn(move || {
-        let push = |connected: bool, surround: bool| {
+        let push = |connected: bool, led: Led| {
             let ui = ui.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui.upgrade() {
                     ui.set_connected(connected);
-                    ui.set_surround(surround);
+                    ui.set_led_index(led.index());
                 }
             });
         };
-        // The official app started in state B and the first press produced A,
-        // so B is treated as on.
-        let mut on = true;
+        let current_led = || Led::from_index(cfg.lock().unwrap().led);
         let mut dev: Option<Gsx300> = None;
         loop {
             let Some(d) = dev.as_ref() else {
                 match Gsx300::open() {
                     Ok(d) => {
+                        // Restore the saved light colour after a (re)connect.
+                        let _ = d.set_led(current_led());
                         dev = Some(d);
-                        push(true, on);
+                        push(true, current_led());
                     }
                     Err(_) => {
-                        push(false, on);
+                        push(false, current_led());
                         let _ = rx.recv_timeout(Duration::from_secs(2));
                     }
                 }
                 continue;
             };
-            while let Ok(Cmd::Surround(v)) = rx.try_recv() {
-                on = v;
-                if d.set_state(if on { State::B } else { State::A }).is_err() {
-                    dev = None;
-                    push(false, on);
-                    break;
-                }
+            let mut lost = false;
+            while let Ok(Cmd::SetLed(l)) = rx.try_recv() {
+                lost |= d.set_led(l).is_err();
             }
-            let Some(d) = dev.as_ref() else { continue };
             match d.read_raw(250) {
                 Ok(r) => {
                     if Gsx300::parse(&r).is_some() {
-                        on = !on;
-                        let _ = d.set_state(if on { State::B } else { State::A });
-                        push(true, on);
+                        let (action, param) = {
+                            let c = cfg.lock().unwrap();
+                            (c.action, c.param.clone())
+                        };
+                        if action == actions::TOGGLE_LED {
+                            let next = if current_led() == Led::Red { Led::Blue } else { Led::Red };
+                            {
+                                let mut c = cfg.lock().unwrap();
+                                c.led = next.index();
+                                c.save();
+                            }
+                            lost |= d.set_led(next).is_err();
+                            push(true, next);
+                        } else {
+                            actions::run(action, &param);
+                        }
                     }
                 }
-                Err(_) => {
-                    dev = None;
-                    push(false, on);
-                }
+                Err(_) => lost = true,
+            }
+            if lost {
+                dev = None;
+                push(false, current_led());
             }
         }
     });
@@ -104,7 +120,20 @@ fn main() {
     }
     let minimized = std::env::args().any(|a| a == "--minimized");
 
+    let cfg: Shared = Arc::new(Mutex::new(Config::load()));
     let ui = MainWindow::new().expect("window");
+
+    let names: Vec<SharedString> = actions::NAMES.iter().map(|s| SharedString::from(*s)).collect();
+    ui.set_action_names(ModelRc::new(VecModel::from(names)));
+    {
+        let c = cfg.lock().unwrap();
+        ui.set_action_index(c.action);
+        ui.set_action_param(c.param.clone().into());
+        ui.set_led_index(c.led);
+        ui.set_param_visible(actions::needs_param(c.action));
+        ui.set_param_hint(actions::param_hint(c.action).into());
+    }
+
     let al = autolaunch();
     ui.set_autostart(al.as_ref().and_then(|a| a.is_enabled().ok()).unwrap_or(false));
     ui.on_autostart_toggled(move |on| {
@@ -114,10 +143,46 @@ fn main() {
     });
 
     let (tx, rx) = mpsc::channel();
-    ui.on_surround_toggled(move |on| {
-        let _ = tx.send(Cmd::Surround(on));
-    });
-    spawn_device_thread(ui.as_weak(), rx);
+    {
+        let cfg = cfg.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_led_selected(move |i| {
+            {
+                let mut c = cfg.lock().unwrap();
+                c.led = i;
+                c.save();
+            }
+            let _ = tx.send(Cmd::SetLed(Led::from_index(i)));
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_led_index(i);
+            }
+        });
+    }
+    {
+        let cfg = cfg.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_action_selected(move |i| {
+            {
+                let mut c = cfg.lock().unwrap();
+                c.action = i;
+                c.save();
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_action_index(i);
+                ui.set_param_visible(actions::needs_param(i));
+                ui.set_param_hint(actions::param_hint(i).into());
+            }
+        });
+    }
+    {
+        let cfg = cfg.clone();
+        ui.on_param_edited(move |t| {
+            let mut c = cfg.lock().unwrap();
+            c.param = t.to_string();
+            c.save();
+        });
+    }
+    spawn_device_thread(ui.as_weak(), rx, cfg);
 
     let open = MenuItem::new("Open EposControl", true, None);
     let quit = MenuItem::new("Quit", true, None);

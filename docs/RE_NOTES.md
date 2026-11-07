@@ -56,3 +56,16 @@ Mic mute and the physical volume dial produced no distinct HID writes beyond the
 ## Plan for audio DSP
 
 Implement an Audio Processing Object (APO) in Rust, registered per endpoint like Equalizer APO does, so processing stays in the Windows audio engine with minimal latency and CPU. Fallback: WASAPI loopback capture with render to the device (simpler, more latency).
+
+## Knob lighting (confirmed by manual test)
+
+Output report ID 4, `04 40 01 00 01 XX 00 ...`. Byte 5 (XX) is a bitmask for the knob LED:
+
+- bit 0x20 (value 0x20): red
+- bit 0x08 (value 0x08): blue
+- both (0x28, and 0xFF which was tested): purple
+- neither: off (0x00 tested)
+- bits 0x01, 0x02, 0x04, 0x10, 0x40, 0x80 alone: no visible effect
+
+The official app uses 0xE0 (red) and 0xC8 (blue). Raw notes: docs/captures/led-notes.txt.
+Brightness, blink patterns and other bytes of the report are still unexplored.
