@@ -69,3 +69,54 @@ Output report ID 4, `04 40 01 00 01 XX 00 ...`. Byte 5 (XX) is a bitmask for the
 
 The official app uses 0xE0 (red) and 0xC8 (blue). Raw notes: docs/captures/led-notes.txt.
 Brightness, blink patterns and other bytes of the report are still unexplored.
+
+## Official audio driver (EPOS APO) control interface
+
+The installer ships an audio processing object (EAPO.dll, CLSID {27201018-29C6-446A-9308-AA97260FEED1}) plus a KMDF driver (eposaudio.sys). The settings are not in the registry. The official service (EPOSGamingSuiteService) writes them into a shared memory block, and the APO in audiodg listens on an event and reloads.
+
+Objects (all in the Global namespace, non admin processes can open them read and write):
+
+- `Global\CF4B411F-BE2B-4D84-8106-EC27CA0F8F05_1395_0098_memory` (4096 byte section)
+- `Global\CF4B411F-BE2B-4D84-8106-EC27CA0F8F05_1395_0098_mutex`
+- `Global\CF4B411F-BE2B-4D84-8106-EC27CA0F8F05_1395_0098_event`
+
+The suffix is VID_PID of the device (1395, 0098 for the GSX 300). To change a setting: wait on the mutex, write, release the mutex, SetEvent. Confirmed on hardware: writing 7.1 on plus reverb at maximum was audible within a second.
+
+### Memory layout (little endian, found by diffing 28 guided snapshots, see docs/captures/apo_steps)
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x00 | u32 | 2 (version, constant) |
+| 0x04 | u32 | 4 (constant) |
+| 0x40 | u8 | 7.1 surround on (1) or 2.0 (0). Flips together with 0x45 |
+| 0x41 | u8 | speaker EQ enabled, always 1 |
+| 0x42, 0x44, 0x46 | u8 | turned on when the official mic page opens (mic EQ, mic meters), off when it closes |
+| 0x43 | u8 | noise reduction enabled, always 1 |
+| 0x45 | u8 | surround flag, same value as 0x40 |
+| 0x4C to 0x6C | 9 x f32 | speaker EQ gain in dB, range -6 to +6, bands 64, 125, 250, 500, 1k, 2k, 4k, 8k, 16k Hz |
+| 0x70 to 0x8C | 8 x f32 | mic EQ gain in dB. The voice enhancer presets are just tables written here |
+| 0x94 | f32 | reverb level 0 to 1 (only audible in 7.1 mode) |
+| 0x98 | f32 | noise gate level 0 to 1 (official presets use value/255) |
+| 0xA0 | u32 | noise cancellation preset 0, 1 or 2 (left, middle, right dot) |
+| 0xB4 | u32 | 2, never changed, probably the HRTF preset |
+| 0x440 to 0x47C | 16 x f32 | live mic spectrum in dB, written by the APO, read only |
+
+Mic gain and side tone do not touch this block. They go through the Windows endpoint volume (gain) and the device topology side tone node (the official service has a CSideToneGain class).
+
+### Official presets (speaker EQ, dB)
+
+- FLAT: all 0.
+- MOVIE: 6, 4.16, 1.28, 0.28, 0, 0, 0.66, 4.0, 6.0 (7.1 on, voice enhancer Warm, gate 0.667)
+- MUSIC: 6, 3.97, 0.85, -0.43, -1.04, -0.47, 0.66, 4.0, 6.0 (gate 0.157, reverb 0.16)
+- ESPORT: -6, -3.97, -0.85, 0.85, 2.03, 4.2, 6, 6, 6 (7.1 on, reverb 0.30)
+
+### Voice enhancer tables (mic EQ, dB, 8 bands)
+
+- Warm: 6, 6, 4.01, -0.52, -3.02, -2.31, 1.04, -3.02
+- Clear: -6, -6, -3.02, 0, 0, 1.04, 2.03, 0
+- Off: all 0
+
+### Open points
+
+- Who creates the section when the official service is not running. Creating a Global section normally needs admin or a service. Plan: ship our own small service in the installer that owns these objects, or keep the official service installed and stopped from showing its UI.
+- Meaning of the flags at 0x42, 0x44, 0x46, 0x47 and the field at 0xB4.
