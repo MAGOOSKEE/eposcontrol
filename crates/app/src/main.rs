@@ -31,6 +31,7 @@ slint::include_modules!();
 type Shared = Arc<Mutex<Config>>;
 
 const MIC_TEST_MAX_SECS: f32 = 15.0;
+const WAVE_POINTS: usize = 160;
 
 enum Cmd {
     SetLed(Led),
@@ -161,12 +162,35 @@ fn preset_label(c: &Config) -> String {
     }
 }
 
-fn preset_names(c: &Config) -> Vec<SharedString> {
+fn mic_label(c: &Config) -> String {
+    match c.mic_preset {
+        i if (0..3).contains(&i) => presets::MIC_PROFILES[i as usize].0.to_string(),
+        i if i >= 3 => c
+            .mic_customs
+            .get((i - 3) as usize)
+            .map(|(n, _)| n.clone())
+            .unwrap_or_else(|| "CUSTOM".into()),
+        _ => "CUSTOM".into(),
+    }
+}
+
+fn profile(name: &str, custom: bool) -> Profile {
+    Profile { name: SharedString::from(name), custom }
+}
+
+fn preset_items(c: &Config) -> Vec<Profile> {
     presets::BUILTIN
         .iter()
-        .map(|p| p.name.to_string())
-        .chain(c.customs.iter().map(|(n, _)| n.clone()))
-        .map(SharedString::from)
+        .map(|p| profile(p.name, false))
+        .chain(c.customs.iter().map(|(n, _)| profile(n, true)))
+        .collect()
+}
+
+fn mic_items(c: &Config) -> Vec<Profile> {
+    presets::MIC_PROFILES
+        .iter()
+        .map(|(n, _)| profile(n, false))
+        .chain(c.mic_customs.iter().map(|(n, _)| profile(n, true)))
         .collect()
 }
 
@@ -268,34 +292,38 @@ fn main() {
 
     let eq_model = Rc::new(VecModel::from(vec![0.0f32; 9]));
     let mic_model = Rc::new(VecModel::from(vec![0.0f32; 9]));
-    let spectrum_model = Rc::new(VecModel::from(vec![-120.0f32; 15]));
-    let names_model: Rc<VecModel<SharedString>> = Rc::new(VecModel::default());
+    let wave_model = Rc::new(VecModel::from(vec![0.0f32; WAVE_POINTS]));
+    let preset_model: Rc<VecModel<Profile>> = Rc::new(VecModel::default());
+    let mic_preset_model: Rc<VecModel<Profile>> = Rc::new(VecModel::default());
     let button_names: Vec<SharedString> =
         actions::NAMES.iter().map(|s| SharedString::from(*s)).collect();
 
     let be = ui.global::<Backend>();
     be.set_eq(ModelRc::from(eq_model.clone()));
     be.set_mic_eq(ModelRc::from(mic_model.clone()));
-    be.set_spectrum(ModelRc::from(spectrum_model.clone()));
-    be.set_preset_names(ModelRc::from(names_model.clone()));
+    be.set_wave(ModelRc::from(wave_model.clone()));
+    be.set_preset_items(ModelRc::from(preset_model.clone()));
+    be.set_mic_preset_items(ModelRc::from(mic_preset_model.clone()));
     be.set_button_names(ModelRc::new(VecModel::from(button_names)));
     be.set_version(env!("CARGO_PKG_VERSION").into());
     be.set_serial(Gsx300::serial().unwrap_or_else(|| "n/a".into()).into());
     be.set_gain(audio::capture_volume().unwrap_or(1.0));
     be.set_volume(audio::render_volume().unwrap_or(0.5));
     be.set_mic_muted(audio::capture_muted().unwrap_or(false));
+    be.set_window_visible(!minimized);
 
     let refresh_presets = {
         let cfg = cfg.clone();
-        let names = names_model.clone();
+        let (items, mic_items_model) = (preset_model.clone(), mic_preset_model.clone());
         let w = ui.as_weak();
         Rc::new(move || {
             let c = cfg.lock().unwrap();
-            names.set_vec(preset_names(&c));
+            items.set_vec(preset_items(&c));
+            mic_items_model.set_vec(mic_items(&c));
             if let Some(ui) = w.upgrade() {
                 let be = ui.global::<Backend>();
-                be.set_preset(c.preset);
                 be.set_preset_label(preset_label(&c).into());
+                be.set_mic_preset_label(mic_label(&c).into());
             }
         })
     };
@@ -330,7 +358,7 @@ fn main() {
         })
     };
 
-    // Selecting a profile loads its curve and mode.
+    // Selecting a headphone profile loads its curve and mode.
     let select_preset: Rc<dyn Fn(i32)> = {
         let (cfg, hw, eq_model, save, rp, w, surround) = (
             cfg.clone(),
@@ -378,7 +406,6 @@ fn main() {
         let c = cfg.lock().unwrap();
         eq_model.set_vec(c.eq.to_vec());
         mic_model.set_vec(c.mic_eq.to_vec());
-        be.set_voice(presets::voice_for(&c.mic_eq));
         be.set_surround(c.surround);
         be.set_reverb(c.reverb);
         be.set_gate(c.gate);
@@ -421,10 +448,7 @@ fn main() {
                 let c = cfg.lock().unwrap();
                 (c.button, c.notifications, c.surround, c.preset, 4 + c.customs.len() as i32)
             };
-            let accent = || {
-                let led = cfg.lock().unwrap().effective_led();
-                knob_color(led)
-            };
+            let accent = || knob_color(cfg.lock().unwrap().effective_led());
             match button {
                 actions::TOGGLE_MODE => {
                     surround(!cur_surround);
@@ -436,13 +460,11 @@ fn main() {
                 actions::TOGGLE_PROFILE => {
                     select((preset.max(0) + 1) % n);
                     if notify {
-                        let c = cfg.lock().unwrap();
-                        let m = format!("AUDIO PROFILE: {}", preset_label(&c));
-                        drop(c);
+                        let m = format!("AUDIO PROFILE: {}", preset_label(&cfg.lock().unwrap()));
                         toast.show(&m, accent());
                     }
                 }
-                actions::TOGGLE_MUTE | _ => {
+                _ => {
                     if let Some(muted) = audio::toggle_capture_mute() {
                         if let Some(ui) = w.upgrade() {
                             ui.global::<Backend>().set_mic_muted(muted);
@@ -488,6 +510,26 @@ fn main() {
                 let eq = c.eq;
                 c.customs.push((name, eq));
                 c.preset = 3 + c.customs.len() as i32;
+            }
+            rp();
+            save();
+        });
+    }
+    {
+        let (cfg, save, rp) = (cfg.clone(), schedule_save.clone(), refresh_presets.clone());
+        be.on_preset_deleted(move |i| {
+            {
+                let mut c = cfg.lock().unwrap();
+                let idx = i - 4;
+                if idx < 0 || idx as usize >= c.customs.len() {
+                    return;
+                }
+                c.customs.remove(idx as usize);
+                if c.preset == i {
+                    c.preset = -1;
+                } else if c.preset > i {
+                    c.preset -= 1;
+                }
             }
             rp();
             save();
@@ -550,31 +592,83 @@ fn main() {
         });
     }
 
-    // Microphone page.
-    {
-        let (cfg, hw, mic_model, save, w) =
-            (cfg.clone(), hw.clone(), mic_model.clone(), schedule_save.clone(), ui.as_weak());
-        be.on_voice_set(move |i| {
-            let curve = presets::VOICE[i.clamp(0, 2) as usize];
-            cfg.lock().unwrap().mic_eq = curve;
+    // Microphone page: profiles.
+    let select_mic: Rc<dyn Fn(i32)> = {
+        let (cfg, hw, mic_model, save, rp) =
+            (cfg.clone(), hw.clone(), mic_model.clone(), schedule_save.clone(), refresh_presets.clone());
+        Rc::new(move |i: i32| {
+            let curve = {
+                let mut c = cfg.lock().unwrap();
+                let curve = if (0..3).contains(&i) {
+                    presets::MIC_PROFILES[i as usize].1
+                } else if let Some((_, eq)) = c.mic_customs.get((i - 3) as usize).cloned() {
+                    eq
+                } else {
+                    return;
+                };
+                c.mic_eq = curve;
+                c.mic_preset = i;
+                curve
+            };
             mic_model.set_vec(curve.to_vec());
-            if let Some(ui) = w.upgrade() {
-                ui.global::<Backend>().set_voice(i);
+            hw.with(|a| a.set_mic_eq(&curve, curve.iter().any(|v| v.abs() > 0.01)));
+            rp();
+            save();
+        })
+    };
+    {
+        let select = select_mic.clone();
+        be.on_mic_preset_selected(move |i| select(i));
+    }
+    {
+        let (cfg, save, rp) = (cfg.clone(), schedule_save.clone(), refresh_presets.clone());
+        be.on_mic_preset_add(move |name| {
+            {
+                let mut c = cfg.lock().unwrap();
+                let mut name = name.trim().to_uppercase();
+                if name.is_empty() {
+                    name = format!("MIC {}", c.mic_customs.len() + 1);
+                }
+                let eq = c.mic_eq;
+                c.mic_customs.push((name, eq));
+                c.mic_preset = 2 + c.mic_customs.len() as i32;
             }
-            hw.with(|a| a.set_mic_eq(&curve, i > 0));
+            rp();
             save();
         });
     }
     {
-        let (cfg, hw, mic_model, save, w) =
-            (cfg.clone(), hw.clone(), mic_model.clone(), schedule_save.clone(), ui.as_weak());
+        let (cfg, save, rp) = (cfg.clone(), schedule_save.clone(), refresh_presets.clone());
+        be.on_mic_preset_deleted(move |i| {
+            {
+                let mut c = cfg.lock().unwrap();
+                let idx = i - 3;
+                if idx < 0 || idx as usize >= c.mic_customs.len() {
+                    return;
+                }
+                c.mic_customs.remove(idx as usize);
+                if c.mic_preset == i {
+                    c.mic_preset = -1;
+                } else if c.mic_preset > i {
+                    c.mic_preset -= 1;
+                }
+            }
+            rp();
+            save();
+        });
+    }
+    {
+        let (cfg, hw, mic_model, save, rp) =
+            (cfg.clone(), hw.clone(), mic_model.clone(), schedule_save.clone(), refresh_presets.clone());
         be.on_mic_eq_moved(move |_, _| {
             let curve = model_array(&mic_model);
-            cfg.lock().unwrap().mic_eq = curve;
-            if let Some(ui) = w.upgrade() {
-                ui.global::<Backend>().set_voice(presets::voice_for(&curve));
+            {
+                let mut c = cfg.lock().unwrap();
+                c.mic_eq = curve;
+                c.mic_preset = -1;
             }
             hw.with(|a| a.set_mic_eq(&curve, curve.iter().any(|v| v.abs() > 0.01)));
+            rp();
             save();
         });
     }
@@ -607,20 +701,27 @@ fn main() {
             save();
         });
     }
+
+    // Live input level for setting the noise gate. The monitor stops itself when polling stops.
     {
-        let (hw, sm) = (hw.clone(), spectrum_model.clone());
-        be.on_poll_spectrum(move || {
-            if let Some(s) = hw.with(|a| a.spectrum()) {
-                sm.set_vec(s.to_vec());
+        let monitor: Rc<RefCell<Option<mictest::Monitor>>> = Rc::new(RefCell::new(None));
+        let ring: Rc<RefCell<Vec<f32>>> = Rc::new(RefCell::new(vec![0.0; WAVE_POINTS]));
+        let wm = wave_model.clone();
+        be.on_poll_wave(move || {
+            let mut m = monitor.borrow_mut();
+            if m.as_ref().map_or(true, |x| !x.running()) {
+                *m = Some(mictest::Monitor::start());
             }
+            let peak = m.as_ref().map_or(0.0, |x| x.take_peak());
+            // Level on a -60 dB to 0 dB scale, 0 to 1.
+            let level = if peak <= 0.000_001 { 0.0 } else { ((20.0 * peak.log10() + 60.0) / 60.0).clamp(0.0, 1.0) };
+            let mut r = ring.borrow_mut();
+            r.remove(0);
+            r.push(level);
+            wm.set_vec(r.clone());
         });
     }
-    {
-        let hw = hw.clone();
-        be.on_page_changed(move |p| {
-            hw.with(|a| a.set_meters(p == 2));
-        });
-    }
+    be.on_page_changed(|_| {});
 
     // Mic test: record from the GSX 300 input, then play back.
     {
@@ -692,7 +793,8 @@ fn main() {
                 let Some(ui) = w2.upgrade() else { return };
                 let be = ui.global::<Backend>();
                 let e = start.elapsed().as_secs_f32();
-                if e >= len2.get() + 0.2 || be.get_mic_test_state() != 3 {
+                let total = len2.get().max(0.1);
+                if e >= total || be.get_mic_test_state() != 3 {
                     t2.stop();
                     if be.get_mic_test_state() == 3 {
                         be.set_mic_test_state(2);
@@ -700,7 +802,7 @@ fn main() {
                     be.set_mic_test_progress(0.0);
                     be.set_mic_test_time(fmt_time(len2.get()).into());
                 } else {
-                    be.set_mic_test_progress(e / len2.get().max(0.1));
+                    be.set_mic_test_progress((e / total).min(1.0));
                     be.set_mic_test_time(fmt_time(e).into());
                 }
             });
@@ -763,10 +865,9 @@ fn main() {
     }
     {
         let w = ui.as_weak();
-        let hw = hw.clone();
         be.on_close(move || {
-            hw.with(|a| a.set_meters(false));
             if let Some(ui) = w.upgrade() {
+                ui.global::<Backend>().set_window_visible(false);
                 let _ = ui.hide();
             }
         });
@@ -785,6 +886,7 @@ fn main() {
             let w = w.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = w.upgrade() {
+                    ui.global::<Backend>().set_window_visible(true);
                     let _ = ui.show();
                 }
             });

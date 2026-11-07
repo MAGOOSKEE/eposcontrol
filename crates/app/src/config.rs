@@ -9,12 +9,15 @@ pub struct Config {
     pub led_mode: i32,
     pub notifications: bool,
     pub eq: [f32; 9],
-    /// 0..3 built in, 4.. custom, -1 for an edited curve.
+    /// Headphone profile: 0..3 built in, 4.. custom, -1 for an edited curve.
     pub preset: i32,
     pub customs: Vec<(String, [f32; 9])>,
     pub surround: bool,
     pub reverb: f32,
     pub mic_eq: [f32; 9],
+    /// Microphone profile: 0..2 built in, 3.. custom, -1 for an edited curve.
+    pub mic_preset: i32,
+    pub mic_customs: Vec<(String, [f32; 9])>,
     pub gate: f32,
     /// Noise cancellation: 0 off, 1 low, 2 high.
     pub nc: i32,
@@ -34,6 +37,8 @@ impl Default for Config {
             surround: false,
             reverb: 0.0,
             mic_eq: [0.0; 9],
+            mic_preset: 0,
+            mic_customs: Vec::new(),
             gate: 0.39,
             nc: 1,
             sidetone: 0.0,
@@ -71,15 +76,17 @@ impl Config {
                 "eq" => c.eq = parse_eq(v).unwrap_or(c.eq),
                 "mic_eq" => c.mic_eq = parse_eq(v).unwrap_or(c.mic_eq),
                 "preset" => c.preset = v.parse().unwrap_or(c.preset),
+                "mic_preset" => c.mic_preset = v.parse().unwrap_or(c.mic_preset),
                 "surround" => c.surround = v == "1",
                 "reverb" => c.reverb = v.parse().unwrap_or(c.reverb),
                 "gate" => c.gate = v.parse().unwrap_or(c.gate),
                 "nc" => c.nc = v.parse().unwrap_or(c.nc).clamp(0, 2),
                 "sidetone" => c.sidetone = v.parse().unwrap_or(c.sidetone),
-                "custom" => {
+                "custom" | "mic_custom" => {
                     if let Some((name, eq)) = v.split_once('|') {
                         if let Some(eq) = parse_eq(eq) {
-                            c.customs.push((name.to_string(), eq));
+                            let list = if k.trim() == "custom" { &mut c.customs } else { &mut c.mic_customs };
+                            list.push((name.to_string(), eq));
                         }
                     }
                 }
@@ -95,13 +102,14 @@ impl Config {
             let _ = std::fs::create_dir_all(dir);
         }
         let mut out = format!(
-            "button={}\nledmode={}\nnotifications={}\neq={}\nmic_eq={}\npreset={}\nsurround={}\nreverb={}\ngate={}\nnc={}\nsidetone={}\n",
+            "button={}\nledmode={}\nnotifications={}\neq={}\nmic_eq={}\npreset={}\nmic_preset={}\nsurround={}\nreverb={}\ngate={}\nnc={}\nsidetone={}\n",
             self.button,
             self.led_mode,
             self.notifications as u8,
             fmt_eq(&self.eq),
             fmt_eq(&self.mic_eq),
             self.preset,
+            self.mic_preset,
             self.surround as u8,
             self.reverb,
             self.gate,
@@ -110,6 +118,9 @@ impl Config {
         );
         for (n, eq) in &self.customs {
             out.push_str(&format!("custom={}|{}\n", n.replace(['|', '\n', '\r'], " "), fmt_eq(eq)));
+        }
+        for (n, eq) in &self.mic_customs {
+            out.push_str(&format!("mic_custom={}|{}\n", n.replace(['|', '\n', '\r'], " "), fmt_eq(eq)));
         }
         let _ = std::fs::write(p, out);
     }

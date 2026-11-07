@@ -2,29 +2,28 @@
 // Nav rail on the left, page content on the right. Pages: Home, Headphones,
 // Microphone, Settings. The single accent colour mirrors the knob light.
 
-import "../../../assets/fonts/Barlow-Regular.ttf";
-import "../../../assets/fonts/Barlow-Medium.ttf";
-import "../../../assets/fonts/Barlow-SemiBold.ttf";
-import "../../../assets/fonts/BarlowSemiCondensed-Medium.ttf";
-import "../../../assets/fonts/BarlowSemiCondensed-SemiBold.ttf";
-import "../../../assets/fonts/IBMPlexMono-Regular.ttf";
+export struct Profile {
+    name: string,
+    custom: bool,
+}
 
 export global Backend {
     in-out property <[float]> eq: [0, 0, 0, 0, 0, 0, 0, 0, 0];
     in-out property <[float]> mic-eq: [0, 0, 0, 0, 0, 0, 0, 0, 0];
-    in-out property <int> preset;
     in property <string> preset-label: "FLAT";
-    in property <[string]> preset-names;
+    in property <[Profile]> preset-items;
+    in property <string> mic-preset-label: "FLAT";
+    in property <[Profile]> mic-preset-items;
     in-out property <bool> surround;
     in-out property <float> reverb;
-    in-out property <int> voice;
     in-out property <float> gain;
     in-out property <float> sidetone;
     in-out property <float> gate;
     in-out property <int> nc;
     in-out property <float> volume;
     in property <bool> mic-muted;
-    in property <[float]> spectrum: [-120, -120, -120, -120, -120, -120, -120, -120, -120, -120, -120, -120, -120, -120, -120];
+    in property <bool> window-visible: true;
+    in property <[float]> wave: [0, 0, 0, 0];
     in property <bool> connected;
     in property <string> version;
     in property <string> serial;
@@ -45,9 +44,12 @@ export global Backend {
     callback mic-eq-moved(int, float);
     callback preset-selected(int);
     callback preset-add(string);
+    callback preset-deleted(int);
+    callback mic-preset-selected(int);
+    callback mic-preset-add(string);
+    callback mic-preset-deleted(int);
     callback surround-set(bool);
     callback reverb-set(float);
-    callback voice-set(int);
     callback gain-set(float);
     callback sidetone-set(float);
     callback gate-set(float);
@@ -56,7 +58,7 @@ export global Backend {
     callback refresh-volume();
     callback toggle-mute();
     callback button-pressed();
-    callback poll-spectrum();
+    callback poll-wave();
     callback page-changed(int);
     callback led-mode-selected(int);
     callback button-selected(int);
@@ -81,12 +83,13 @@ global Theme {
     out property <color> dim: #8a909b;
     out property <color> accent: Backend.knob-color;
     out property <color> accent-ink: #0b0c0e;
+    out property <color> danger: #ff5a52;
     out property <length> r-sm: 6px;
     out property <length> r-md: 8px;
     out property <length> r-lg: 12px;
-    out property <string> body: "Barlow";
-    out property <string> label: "Barlow Semi Condensed";
-    out property <string> mono: "IBM Plex Mono";
+    out property <string> body: "Segoe UI";
+    out property <string> label: "Segoe UI";
+    out property <string> mono: "Consolas";
 }
 
 component Label inherits Text {
@@ -94,13 +97,13 @@ component Label inherits Text {
     font-family: Theme.label;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 1.4px;
+    letter-spacing: 1.2px;
 }
 
 component Mono inherits Text {
     color: Theme.text;
     font-family: Theme.mono;
-    font-size: 12px;
+    font-size: 13px;
 }
 
 component Rule inherits Rectangle {
@@ -148,7 +151,7 @@ component Btn inherits Rectangle {
             font-family: Theme.label;
             font-size: 12px;
             font-weight: 600;
-            letter-spacing: 0.8px;
+            letter-spacing: 0.6px;
             vertical-alignment: center;
         }
     }
@@ -175,7 +178,7 @@ component Select inherits Rectangle {
         font-family: Theme.label;
         font-size: 12px;
         font-weight: 600;
-        letter-spacing: 0.8px;
+        letter-spacing: 0.6px;
         vertical-alignment: center;
         overflow: elide;
     }
@@ -224,23 +227,111 @@ component Select inherits Rectangle {
     }
 }
 
+// Profile picker. Custom profiles get an X to delete them.
+component ProfileSelect inherits Rectangle {
+    in property <string> label;
+    in property <[Profile]> items;
+    in property <length> menu-width: 200px;
+    callback picked(int);
+    callback deleted(int);
+    height: 34px;
+    border-radius: Theme.r-md;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: area.has-hover ? Theme.field-hi : Theme.field;
+    Text {
+        x: 14px;
+        y: 0px;
+        width: parent.width - 40px;
+        height: parent.height;
+        text: root.label;
+        color: Theme.text;
+        font-family: Theme.label;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.6px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Image {
+        x: parent.width - 26px;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        source: @image-url("../../../assets/icons/arrow_drop_down.svg");
+        colorize: Theme.dim;
+    }
+    area := TouchArea { clicked => { pop.show(); } }
+    pop := PopupWindow {
+        x: root.width - root.menu-width;
+        y: root.height + 4px;
+        width: root.menu-width;
+        Rectangle {
+            background: Theme.field-hi;
+            border-radius: Theme.r-md;
+            border-width: 1px;
+            border-color: Theme.rule;
+            VerticalLayout {
+                padding: 4px;
+                for item[i] in root.items: Rectangle {
+                    height: 32px;
+                    border-radius: Theme.r-sm;
+                    background: ia.has-hover ? Theme.accent.with-alpha(0.22) : transparent;
+                    ia := TouchArea { clicked => { root.picked(i); } }
+                    Text {
+                        x: 12px;
+                        y: 0px;
+                        width: parent.width - (item.custom ? 52px : 24px);
+                        height: parent.height;
+                        text: item.name;
+                        color: Theme.text;
+                        font-family: Theme.label;
+                        font-size: 12px;
+                        font-weight: 600;
+                        letter-spacing: 0.6px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if item.custom: Rectangle {
+                        x: parent.width - 30px;
+                        y: 2px;
+                        width: 28px;
+                        height: 28px;
+                        border-radius: Theme.r-sm;
+                        background: xa.has-hover ? Theme.danger.with-alpha(0.28) : transparent;
+                        Image {
+                            x: 7px;
+                            y: 7px;
+                            width: 14px;
+                            height: 14px;
+                            source: @image-url("../../../assets/icons/close.svg");
+                            colorize: xa.has-hover ? Theme.danger : Theme.dim;
+                        }
+                        xa := TouchArea { clicked => { root.deleted(i); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component Seg inherits Rectangle {
     in property <[string]> labels;
     in property <int> index;
     in property <length> cell: 64px;
     callback picked(int);
-    height: 34px;
-    width: root.labels.length * root.cell;
+    height: 36px;
+    width: root.labels.length * root.cell + 6px;
     border-radius: Theme.r-md;
     border-width: 1px;
     border-color: Theme.rule;
     background: Theme.field;
-    clip: true;
     for t[i] in root.labels: Rectangle {
-        x: i * root.cell;
-        y: 0px;
+        x: 3px + i * root.cell;
+        y: 3px;
         width: root.cell;
-        height: parent.height;
+        height: parent.height - 6px;
+        border-radius: Theme.r-sm;
         background: root.index == i ? Theme.accent : (sa.has-hover ? Theme.field-hi : transparent);
         Text {
             x: 0px;
@@ -252,7 +343,7 @@ component Seg inherits Rectangle {
             font-family: Theme.label;
             font-size: 12px;
             font-weight: 600;
-            letter-spacing: 0.8px;
+            letter-spacing: 0.6px;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -344,7 +435,7 @@ component Steps3 inherits Rectangle {
         font-family: Theme.label;
         font-size: 10px;
         font-weight: 600;
-        letter-spacing: 1px;
+        letter-spacing: 0.8px;
         horizontal-alignment: center;
     }
     TouchArea {
@@ -369,7 +460,7 @@ component Row inherits Rectangle {
         color: Theme.text;
         font-family: Theme.body;
         font-size: 14px;
-        font-weight: 500;
+        font-weight: 600;
     }
     if root.hint != "": Text {
         x: 0px;
@@ -384,8 +475,6 @@ component Row inherits Rectangle {
 // Nine band equaliser with Bezier smoothed curve. Used for headphones and microphone.
 component EqGraph inherits Rectangle {
     in-out property <[float]> values;
-    in property <bool> show-spectrum: false;
-    in property <float> gate-level: -1;
     callback moved(int, float);
     property <length> lw: 44px;
     property <length> cw: (root.width - lw) / 9;
@@ -427,35 +516,6 @@ component EqGraph inherits Rectangle {
         height: root.height;
         background: Theme.rule;
     }
-    if root.show-spectrum: Rectangle {
-        x: 0px;
-        y: 0px;
-        width: root.width;
-        height: root.height;
-        for v[i] in Backend.spectrum: Rectangle {
-            property <length> h: max(2px, min(root.height, (v + 80) / 70 * root.height));
-            width: 10px;
-            height: self.h;
-            x: lw + (i + 0.5) * (root.width - lw) / 15 - 5px;
-            y: root.height - self.h;
-            border-radius: 3px;
-            background: Theme.accent.with-alpha(0.28);
-        }
-    }
-    if root.gate-level >= 0: Rectangle {
-        x: lw;
-        y: root.height * (1 - root.gate-level);
-        width: root.width - lw;
-        height: 1px;
-        background: Theme.text.with-alpha(0.7);
-        Mono {
-            x: parent.width - self.preferred-width - 6px;
-            y: -16px;
-            text: "GATE";
-            color: Theme.text;
-            font-size: 10px;
-        }
-    }
     Path {
         x: 0px;
         y: 0px;
@@ -496,7 +556,7 @@ component EqGraph inherits Rectangle {
         width: 60px;
         text: (root.values[i] >= 0 ? "+" : "") + round(root.values[i] * 10) / 10;
         color: root.dragging == i ? Theme.accent : Theme.dim;
-        font-size: 11px;
+        font-size: 12px;
         horizontal-alignment: center;
     }
     for i in 9: TouchArea {
@@ -516,6 +576,41 @@ component EqGraph inherits Rectangle {
             else if (e.kind == PointerEventKind.move && self.pressed) { self.upd(e.modifiers.control); }
             else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) { root.dragging = -1; }
         }
+    }
+}
+
+// Scrolling input level (mirrored envelope) with the noise gate drawn as a pair of lines.
+component WaveView inherits Rectangle {
+    in property <[float]> samples;
+    in property <float> gate;
+    property <length> mid: root.height / 2;
+    property <length> reach: root.height / 2 - 6px;
+    height: 130px;
+    border-radius: Theme.r-md;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: Theme.field;
+    clip: true;
+    Rectangle { x: 0px; y: root.mid; width: root.width; height: 1px; background: Theme.rule; }
+    for v[i] in root.samples: Rectangle {
+        property <length> half: max(1px, v * root.reach);
+        x: 6px + i * (root.width - 12px) / 160;
+        y: root.mid - self.half;
+        width: max(1px, (root.width - 12px) / 160 - 1px);
+        height: self.half * 2;
+        background: v >= root.gate ? Theme.accent : Theme.dim.with-alpha(0.5);
+    }
+    Rectangle { x: 0px; y: root.mid - root.gate * root.reach; width: root.width; height: 1px; background: Theme.text.with-alpha(0.85); }
+    Rectangle { x: 0px; y: root.mid + root.gate * root.reach; width: root.width; height: 1px; background: Theme.text.with-alpha(0.85); }
+    Text {
+        x: root.width - self.preferred-width - 8px;
+        y: root.mid - root.gate * root.reach - 18px;
+        text: "GATE";
+        color: Theme.text;
+        font-family: Theme.label;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 1px;
     }
 }
 
@@ -553,11 +648,11 @@ component GsxArt inherits Rectangle {
 component HomePage inherits Rectangle {
     GsxArt { x: 32px; y: 36px; art-w: 520px; }
     Label { x: 32px; y: 344px; text: "STATUS"; }
-    Text { x: 32px; y: 362px; text: Backend.connected ? "Connected" : "Not connected"; color: Backend.connected ? Theme.accent : Theme.dim; font-family: Theme.body; font-size: 15px; font-weight: 500; }
+    Text { x: 32px; y: 362px; text: Backend.connected ? "Connected" : "Not connected"; color: Backend.connected ? Theme.accent : Theme.dim; font-family: Theme.body; font-size: 15px; font-weight: 600; }
     Label { x: 220px; y: 344px; text: "SERIAL"; }
-    Mono { x: 220px; y: 364px; text: Backend.serial; }
+    Mono { x: 220px; y: 362px; text: Backend.serial; }
     Label { x: 410px; y: 344px; text: "VERSION"; }
-    Mono { x: 410px; y: 364px; text: Backend.version; }
+    Mono { x: 410px; y: 362px; text: Backend.version; }
 
     Image {
         x: 620px + (292px - 118px) / 2;
@@ -585,14 +680,15 @@ component HomePage inherits Rectangle {
         y: 288px;
         width: 292px;
         label: "AUDIO PROFILE";
-        Select {
+        ProfileSelect {
             x: 0px;
             y: 24px;
             width: 292px;
             label: Backend.preset-label;
-            items: Backend.preset-names;
+            items: Backend.preset-items;
             menu-width: 292px;
             picked(i) => { Backend.preset-selected(i); }
+            deleted(i) => { Backend.preset-deleted(i); }
         }
     }
     Field {
@@ -627,20 +723,21 @@ component HomePage inherits Rectangle {
 }
 
 component HeadphonesPage inherits Rectangle {
-    Label { x: 32px; y: 22px; text: "EQUALIZER  /  9 BAND  /  HOLD CTRL TO SNAP TO 0.5 DB"; }
+    Label { x: 32px; y: 22px; text: "HEADPHONE EQUALIZER"; }
+    Text { x: parent.width - 32px - 300px; y: 20px; width: 300px; text: "Hold Ctrl to snap to 0.5 dB"; color: Theme.dim; font-family: Theme.body; font-size: 11px; horizontal-alignment: right; }
     EqGraph {
         x: 32px;
-        y: 62px;
+        y: 56px;
         width: parent.width - 64px;
-        height: 200px;
+        height: 170px;
         values <=> Backend.eq;
         moved(i, v) => { Backend.eq-moved(i, v); }
     }
-    Rule { x: 32px; y: 352px; width: parent.width - 64px; }
+    Rule { x: 32px; y: 296px; width: parent.width - 64px; }
 
     Field {
         x: 32px;
-        y: 372px;
+        y: 324px;
         width: 180px;
         label: "AUDIO MODE";
         Seg {
@@ -654,7 +751,7 @@ component HeadphonesPage inherits Rectangle {
     }
     Field {
         x: 250px;
-        y: 372px;
+        y: 324px;
         width: 300px;
         label: "REVERBERATION";
         opacity: Backend.surround ? 1.0 : 0.45;
@@ -670,7 +767,7 @@ component HeadphonesPage inherits Rectangle {
     }
     Field {
         x: 620px;
-        y: 372px;
+        y: 324px;
         width: 292px;
         label: "SOUND TEST";
         Btn {
@@ -685,7 +782,7 @@ component HeadphonesPage inherits Rectangle {
         Mono { x: 128px; y: 24px; height: 34px; text: Backend.test-time; vertical-alignment: center; }
         Rectangle {
             x: 0px;
-            y: 66px;
+            y: 68px;
             width: 292px;
             height: 4px;
             border-radius: 2px;
@@ -693,7 +790,7 @@ component HeadphonesPage inherits Rectangle {
             Rectangle {
                 x: 0px;
                 y: 0px;
-                width: parent.width * Backend.test-progress;
+                width: parent.width * max(0.0, min(1.0, Backend.test-progress));
                 height: parent.height;
                 border-radius: 2px;
                 background: Theme.accent;
@@ -703,82 +800,75 @@ component HeadphonesPage inherits Rectangle {
 }
 
 component MicPage inherits Rectangle {
-    Label { x: 32px; y: 22px; text: "MICROPHONE EQUALIZER  /  LIVE INPUT BEHIND THE CURVE"; }
+    Label { x: 32px; y: 22px; text: "MICROPHONE EQUALIZER"; }
+    Text { x: parent.width - 32px - 300px; y: 20px; width: 300px; text: "Hold Ctrl to snap to 0.5 dB"; color: Theme.dim; font-family: Theme.body; font-size: 11px; horizontal-alignment: right; }
     EqGraph {
         x: 32px;
         y: 56px;
         width: parent.width - 64px;
-        height: 150px;
-        show-spectrum: true;
-        gate-level: Backend.gate;
+        height: 170px;
         values <=> Backend.mic-eq;
         moved(i, v) => { Backend.mic-eq-moved(i, v); }
     }
-    Rule { x: 32px; y: 276px; width: parent.width - 64px; }
+    Rule { x: 32px; y: 290px; width: parent.width - 64px; }
+
+    Label { x: 32px; y: 308px; text: "INPUT LEVEL"; }
+    Text { x: 32px; y: 326px; width: 450px; text: "Speak normally, then set the gate just above the background noise."; color: Theme.dim; font-family: Theme.body; font-size: 11px; }
+    WaveView {
+        x: 32px;
+        y: 352px;
+        width: 450px;
+        height: 130px;
+        samples: Backend.wave;
+        gate: Backend.gate;
+    }
 
     Field {
-        x: 32px;
-        y: 294px;
-        width: 280px;
-        label: "VOICE ENHANCER";
-        Select {
-            x: 0px;
-            y: 24px;
-            width: 200px;
-            label: ["OFF", "WARM", "CLEAR", "CUSTOM"][Backend.voice];
-            items: ["OFF", "WARM", "CLEAR"];
-            menu-width: 200px;
-            picked(i) => { Backend.voice-set(i); }
-        }
-    }
-    Field {
-        x: 32px;
-        y: 372px;
-        width: 280px;
-        label: "GAIN";
-        Slim { x: 0px; y: 27px; width: 220px; value <=> Backend.gain; changed(v) => { Backend.gain-set(v); } }
-        Mono { x: 232px; y: 27px; width: 48px; height: 28px; text: round(Backend.gain * 100) + "%"; horizontal-alignment: right; vertical-alignment: center; }
-    }
-    Field {
-        x: 340px;
-        y: 294px;
-        width: 280px;
+        x: 522px;
+        y: 308px;
+        width: 190px;
         label: "SIDE TONE";
-        Slim { x: 0px; y: 27px; width: 220px; value <=> Backend.sidetone; changed(v) => { Backend.sidetone-set(v); } }
-        Mono { x: 232px; y: 27px; width: 48px; height: 28px; text: Backend.sidetone <= 0.001 ? "OFF" : round(-57 + 57 * Backend.sidetone) + " dB"; horizontal-alignment: right; vertical-alignment: center; }
+        Slim { x: 0px; y: 27px; width: 136px; value <=> Backend.sidetone; changed(v) => { Backend.sidetone-set(v); } }
+        Mono { x: 142px; y: 27px; width: 48px; height: 28px; text: Backend.sidetone <= 0.001 ? "OFF" : round(-57 + 57 * Backend.sidetone) + ""; horizontal-alignment: right; vertical-alignment: center; }
     }
     Field {
-        x: 340px;
-        y: 372px;
-        width: 280px;
+        x: 724px;
+        y: 308px;
+        width: 188px;
+        label: "GAIN";
+        Slim { x: 0px; y: 27px; width: 136px; value <=> Backend.gain; changed(v) => { Backend.gain-set(v); } }
+        Mono { x: 142px; y: 27px; width: 46px; height: 28px; text: round(Backend.gain * 100) + "%"; horizontal-alignment: right; vertical-alignment: center; }
+    }
+    Field {
+        x: 522px;
+        y: 382px;
+        width: 190px;
         label: "NOISE GATE";
-        Slim { x: 0px; y: 27px; width: 220px; value <=> Backend.gate; changed(v) => { Backend.gate-set(v); } }
-        Mono { x: 232px; y: 27px; width: 48px; height: 28px; text: round(Backend.gate * 100) + "%"; horizontal-alignment: right; vertical-alignment: center; }
+        Slim { x: 0px; y: 27px; width: 136px; value <=> Backend.gate; changed(v) => { Backend.gate-set(v); } }
+        Mono { x: 142px; y: 27px; width: 48px; height: 28px; text: round(Backend.gate * 100) + "%"; horizontal-alignment: right; vertical-alignment: center; }
     }
     Field {
-        x: 648px;
-        y: 294px;
-        width: 264px;
+        x: 724px;
+        y: 382px;
+        width: 188px;
         label: "NOISE CANCELLATION";
         Steps3 {
-            x: 8px;
+            x: 4px;
             y: 27px;
-            width: 230px;
+            width: 170px;
             index: Backend.nc;
-            picked(i) => { Backend.nc-set(i); }
+            picked(i) => { Backend.nc = i; Backend.nc-set(i); }
         }
     }
-
-    Rule { x: 32px; y: 432px; width: parent.width - 64px; }
     Field {
-        x: 32px;
-        y: 448px;
-        width: 560px;
+        x: 522px;
+        y: 456px;
+        width: 390px;
         label: "MIC TEST";
         Btn {
             x: 0px;
             y: 24px;
-            width: 124px;
+            width: 120px;
             icon: Backend.mic-test-state == 1 ? @image-url("../../../assets/icons/stop.svg") : @image-url("../../../assets/icons/fiber_manual_record.svg");
             text: Backend.mic-test-state == 1 ? "STOP" : "RECORD";
             active: Backend.mic-test-state == 1;
@@ -786,27 +876,27 @@ component MicPage inherits Rectangle {
             clicked => { if (Backend.mic-test-state == 1) { Backend.mic-test-stop(); } else { Backend.mic-test-record(); } }
         }
         Btn {
-            x: 136px;
+            x: 130px;
             y: 24px;
-            width: 112px;
+            width: 100px;
             icon: Backend.mic-test-state == 3 ? @image-url("../../../assets/icons/stop.svg") : @image-url("../../../assets/icons/play_arrow.svg");
             text: Backend.mic-test-state == 3 ? "STOP" : "PLAY";
             active: Backend.mic-test-state == 3;
             enabled: Backend.mic-test-state == 2 || Backend.mic-test-state == 3;
             clicked => { if (Backend.mic-test-state == 3) { Backend.mic-test-stop(); } else { Backend.mic-test-play(); } }
         }
-        Mono { x: 264px; y: 24px; height: 34px; text: Backend.mic-test-time; vertical-alignment: center; }
+        Mono { x: 246px; y: 24px; height: 34px; text: Backend.mic-test-time; vertical-alignment: center; }
         Rectangle {
-            x: 330px;
-            y: 39px;
-            width: 230px;
+            x: 0px;
+            y: 66px;
+            width: 390px;
             height: 4px;
             border-radius: 2px;
             background: Theme.rule;
             Rectangle {
                 x: 0px;
                 y: 0px;
-                width: parent.width * Backend.mic-test-progress;
+                width: parent.width * max(0.0, min(1.0, Backend.mic-test-progress));
                 height: parent.height;
                 border-radius: 2px;
                 background: Theme.accent;
@@ -842,8 +932,8 @@ component SettingsPage inherits Rectangle {
         label: "Knob light";
         hint: "Auto is blue in 2.0 and red in 7.1";
         Seg {
-            x: parent.width - 300px;
-            y: 11px;
+            x: parent.width - 306px;
+            y: 10px;
             cell: 60px;
             labels: ["AUTO", "OFF", "RED", "BLUE", "VIOLET"];
             index: Backend.led-mode;
@@ -917,9 +1007,9 @@ export component MainWindow inherits Window {
     property <length> rail-w: 96px;
 
     Timer {
-        interval: 60ms;
-        running: root.page == 2;
-        triggered => { Backend.poll-spectrum(); }
+        interval: 33ms;
+        running: root.page == 2 && Backend.window-visible;
+        triggered => { Backend.poll-wave(); }
     }
 
     // Nav rail
@@ -982,7 +1072,7 @@ export component MainWindow inherits Window {
                 font-family: Theme.label;
                 font-size: 10px;
                 font-weight: 600;
-                letter-spacing: 1.1px;
+                letter-spacing: 0.8px;
             }
             ta := TouchArea { clicked => { root.page = i; Backend.page-changed(i); } }
         }
@@ -1009,7 +1099,7 @@ export component MainWindow inherits Window {
             color: Theme.text;
             font-family: Theme.body;
             font-size: 22px;
-            font-weight: 500;
+            font-weight: 600;
             vertical-alignment: center;
         }
         HorizontalLayout {
@@ -1019,14 +1109,23 @@ export component MainWindow inherits Window {
             height: 34px;
             spacing: 8px;
             alignment: end;
-            if root.page == 1: Select {
-                width: 150px;
+            if root.page == 1: ProfileSelect {
+                width: 170px;
                 label: Backend.preset-label;
-                items: Backend.preset-names;
-                menu-width: 150px;
+                items: Backend.preset-items;
+                menu-width: 200px;
                 picked(i) => { Backend.preset-selected(i); }
+                deleted(i) => { Backend.preset-deleted(i); }
             }
-            if root.page == 1: Btn {
+            if root.page == 2: ProfileSelect {
+                width: 170px;
+                label: Backend.mic-preset-label;
+                items: Backend.mic-preset-items;
+                menu-width: 200px;
+                picked(i) => { Backend.mic-preset-selected(i); }
+                deleted(i) => { Backend.mic-preset-deleted(i); }
+            }
+            if root.page == 1 || root.page == 2: Btn {
                 icon: @image-url("../../../assets/icons/add_box.svg");
                 width: 36px;
                 clicked => { name-pop.show(); }
@@ -1096,10 +1195,13 @@ export component MainWindow inherits Window {
                     height: parent.height;
                     color: Theme.text;
                     font-family: Theme.mono;
-                    font-size: 12px;
+                    font-size: 13px;
                     vertical-alignment: center;
                     text: "";
-                    accepted => { Backend.preset-add(self.text); self.text = ""; }
+                    accepted => {
+                        if (root.page == 2) { Backend.mic-preset-add(self.text); } else { Backend.preset-add(self.text); }
+                        self.text = "";
+                    }
                 }
             }
             Btn {
@@ -1107,7 +1209,10 @@ export component MainWindow inherits Window {
                 y: 44px;
                 width: 92px;
                 text: "SAVE";
-                clicked => { Backend.preset-add(name-input.text); name-input.text = ""; }
+                clicked => {
+                    if (root.page == 2) { Backend.mic-preset-add(name-input.text); } else { Backend.preset-add(name-input.text); }
+                    name-input.text = "";
+                }
             }
         }
     }
@@ -1153,9 +1258,9 @@ export component ToastWindow inherits Window {
             text: root.message;
             color: Theme.text;
             font-family: Theme.label;
-            font-size: 21px;
+            font-size: 20px;
             font-weight: 600;
-            letter-spacing: 1.6px;
+            letter-spacing: 1.2px;
             vertical-alignment: center;
             overflow: elide;
         }

@@ -6,7 +6,7 @@ build = "build.rs"
 
 [dependencies]
 epos-device = { path = "../epos-device" }
-slint = { version = "1", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-2", "unstable-winit-030"] }
+slint = { version = "1", default-features = false, features = ["std", "backend-winit", "renderer-software", "software-renderer-systemfonts", "compat-1-2", "unstable-winit-030"] }
 tray-icon = { version = "0.21", default-features = false }
 auto-launch = "0.5"
 single-instance = "0.3"

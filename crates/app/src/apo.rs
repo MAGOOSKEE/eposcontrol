@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Control of the EPOS APO audio driver through its shared memory block.
 //!
 //! Layout and objects are documented in docs/RE_NOTES.md. Writers take the
