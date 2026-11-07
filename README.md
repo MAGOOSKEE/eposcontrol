@@ -2,6 +2,7 @@
 
 A fast, light, open replacement for EPOS Gaming Suite. Pure native Rust, no web view: about 8 MB on disk and a few MB of memory while it sits in the tray.
 
+![Home page](docs/images/home.png)
 ![Headphones page](docs/images/headphones.png)
 ![Microphone page](docs/images/microphone.png)
 
