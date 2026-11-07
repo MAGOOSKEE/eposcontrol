@@ -5,14 +5,25 @@ A fast, light, open replacement for EPOS Gaming Suite. Target hardware: EPOS GSX
 ## Goals
 
 - Starts silently in the system tray on boot (user can disable this).
-- Tiny memory and CPU footprint, instant startup, no background service bloat.
+- Tiny memory and CPU footprint, instant startup, no background service.
 - Clean, standard layout with the Material Symbols icon set. No emojis.
-- Signed installer for releases.
+- Installer for releases.
 
 ## Stack
 
-Rust backend (HID and audio control) with a Tauri 2 shell and a small web UI.
+Pure native Rust. No web view.
+
+- `crates/epos-device`: HID protocol for the GSX 300.
+- `crates/app`: Slint UI (software renderer, Material style), tray icon, launch at startup.
+
+## Build
+
+```
+cargo build --release -p eposcontrol
+```
+
+Run with `--minimized` to start hidden in the tray (this is what the startup entry uses).
 
 ## Status
 
-Early reverse engineering. See docs/RE_NOTES.md.
+Device detection, smart button handling, tray and startup toggle work. Audio processing (EQ, reverb, mic features) is not implemented yet. See docs/RE_NOTES.md for the protocol and plan.

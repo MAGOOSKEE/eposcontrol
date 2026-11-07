@@ -1,0 +1,7 @@
+[package]
+name = "epos-device"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hidapi = { version = "2", default-features = false, features = ["windows-native"] }
