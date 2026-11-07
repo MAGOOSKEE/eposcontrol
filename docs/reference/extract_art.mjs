@@ -59,9 +59,11 @@ function recolour(p) {
 }
 
 const out = [
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${vb.w.toFixed(2)}" height="${vb.h.toFixed(2)}" viewBox="${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.w.toFixed(2)} ${vb.h.toFixed(2)}">`,
-  "<!-- Top view of the GSX 300, traced from the product quick guide and recoloured for dark UI. -->",
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${vb.h.toFixed(2)}" height="${vb.w.toFixed(2)}" viewBox="0 0 ${vb.h.toFixed(2)} ${vb.w.toFixed(2)}">`,
+  "<!-- Top view of the GSX 300, traced from the product quick guide, rotated 90 degrees clockwise and recoloured for dark UI. -->",
+  `<g transform="translate(${vb.h.toFixed(2)},0) rotate(90) translate(${(-vb.x).toFixed(2)},${(-vb.y).toFixed(2)})">`,
   ...keep.map((s) => recolour(s.p)),
+  "</g>",
   "</svg>",
 ].join("\n");
 writeFileSync(outPath, out);
