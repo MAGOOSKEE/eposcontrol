@@ -2,7 +2,7 @@
 //! All functions must be called from a thread that initialised COM.
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
-use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioMeterInformation};
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
     eCapture, eConsole, eRender, EDataFlow, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
     DEVICE_STATE_ACTIVE,
@@ -82,13 +82,4 @@ pub fn capture_volume() -> Option<f32> {
 }
 pub fn set_capture_volume(v: f32) {
     set(eCapture, v)
-}
-
-pub fn capture_meter() -> Option<IAudioMeterInformation> {
-    let dev = gsx_endpoint(eCapture)?;
-    unsafe { dev.Activate::<IAudioMeterInformation>(CLSCTX_ALL, None).ok() }
-}
-
-pub fn peak(meter: &IAudioMeterInformation) -> Option<f32> {
-    unsafe { meter.GetPeakValue().ok() }
 }
