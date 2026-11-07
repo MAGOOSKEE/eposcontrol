@@ -133,3 +133,9 @@ Side tone is not a Windows audio control for this device. The official service s
 - Reads use command 0x20 (`04 20 01 00 <addr>`), sent in a burst at startup by the official service. Not needed for control.
 
 Capture summary: docs/captures/sidetone-requests.tsv, step times in docs/captures/sidetone-markers.csv.
+
+## Who creates the shared memory
+
+Tested by stopping EPOSGamingSuiteService and restarting the Windows audio service: the Global objects were gone afterwards, so the APO only opens them and the official service creates them. EposControl therefore ships its own service (`eposcontrol.exe --service`, crates/app/src/service.rs) that creates the same three objects (4096 byte section with the starting values from the official service, mutex, auto reset event) with security `D:(A;OICI;FA;;;BU)(A;OICI;FA;;;LS)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`.
+
+Not yet verified on hardware: that the APO attaches to memory created by this service (event reset type is a guess).

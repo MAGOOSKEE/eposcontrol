@@ -38,3 +38,16 @@ Device detection, smart button handling, tray and startup toggle work. Audio pro
 ## Knob light
 
 Auto mode shows blue in 2.0 and red in 7.1. It can also be set manually to off, red, blue or violet. The whole UI accent follows the knob colour.
+
+## Installer
+
+`scripts\build-installer.ps1` builds the release exe and `dist\EposControl-Setup-<version>.exe` with Inno Setup 6 (`winget install JRSoftware.InnoSetup`). Pass `-OfficialMsi <path>` to also bundle the audio driver files from the official installer (private use only).
+
+The installer:
+
+- installs the app and an optional start with Windows entry (hidden in the tray),
+- installs `EposControlHost`, a small Windows service (`eposcontrol.exe --service`) that creates the shared memory the EPOS audio driver reads, replacing the official EPOS Gaming Suite service,
+- disables the official service (the uninstaller turns it back on),
+- can restart the Windows audio service so the driver attaches to the new host.
+
+The audio driver itself (EPOS APO) must be installed. The official Gaming Suite installs it, or tick the driver task when the installer was built with `-OfficialMsi`.

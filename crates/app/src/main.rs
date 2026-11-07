@@ -7,6 +7,7 @@ mod audiotest;
 mod config;
 mod mictest;
 mod presets;
+mod service;
 
 use apo::Apo;
 use config::Config;
@@ -263,6 +264,10 @@ impl Toast {
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--service") {
+        service::run();
+        return;
+    }
     let guard = single_instance::SingleInstance::new("EposControl-single-instance").ok();
     if guard.as_ref().is_some_and(|g| !g.is_single()) {
         return;
