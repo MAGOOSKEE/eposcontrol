@@ -26,7 +26,7 @@
 
 ## Capture findings (USBPcap, official app v1.12.2.1185, bus 2, device address 4)
 
-Raw summaries are in docs/captures. Guide step times are in cap2-markers.csv.
+The raw USB captures are not included in the repository; the findings below are what they showed.
 
 ### Hardware control is tiny
 
@@ -67,7 +67,7 @@ Output report ID 4, `04 40 01 00 01 XX 00 ...`. Byte 5 (XX) is a bitmask for the
 - neither: off (0x00 tested)
 - bits 0x01, 0x02, 0x04, 0x10, 0x40, 0x80 alone: no visible effect
 
-The official app uses 0xE0 (red) and 0xC8 (blue). Raw notes: docs/captures/led-notes.txt.
+The official app uses 0xE0 (red) and 0xC8 (blue).
 Brightness, blink patterns and other bytes of the report are still unexplored.
 
 ## Official audio driver (EPOS APO) control interface
@@ -82,7 +82,7 @@ Objects (all in the Global namespace, non admin processes can open them read and
 
 The suffix is VID_PID of the device (1395, 0098 for the GSX 300). To change a setting: wait on the mutex, write, release the mutex, SetEvent. Confirmed on hardware: writing 7.1 on plus reverb at maximum was audible within a second.
 
-### Memory layout (little endian, found by diffing 28 guided snapshots, see docs/captures/apo_steps)
+### Memory layout (little endian, found by diffing 28 guided snapshots)
 
 | Offset | Type | Meaning |
 |---|---|---|
@@ -132,7 +132,6 @@ Side tone is not a Windows audio control for this device. The official service s
 - The knob light uses the same command with register `00 01` (see above).
 - Reads use command 0x20 (`04 20 01 00 <addr>`), sent in a burst at startup by the official service. Not needed for control.
 
-Capture summary: docs/captures/sidetone-requests.tsv, step times in docs/captures/sidetone-markers.csv.
 
 ## Who creates the shared memory
 

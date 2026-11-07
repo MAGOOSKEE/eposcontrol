@@ -5,3 +5,4 @@ captures/
 *.pcap
 *.pcapng
 .env
+installer/staging/
