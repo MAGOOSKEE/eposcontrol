@@ -27,6 +27,8 @@ export global Backend {
     in property <bool> connected;
     in property <string> version;
     in property <string> serial;
+    in property <string> official-issue;
+    in property <bool> official-busy;
     in property <color> knob-color: #3b8cff;
     in-out property <int> led-mode;
     in-out property <int> button-index;
@@ -58,6 +60,7 @@ export global Backend {
     callback refresh-volume();
     callback toggle-mute();
     callback button-pressed();
+    callback official-disable();
     callback poll-wave();
     callback page-changed(int);
     callback led-mode-selected(int);
@@ -646,7 +649,38 @@ component GsxArt inherits Rectangle {
 }
 
 component HomePage inherits Rectangle {
-    GsxArt { x: 32px; y: 36px; art-w: 520px; }
+    GsxArt { x: 32px; y: 52px; art-w: 520px; }
+    if Backend.official-issue != "": Rectangle {
+        x: 32px;
+        y: 2px;
+        width: 560px;
+        height: 40px;
+        border-radius: Theme.r-md;
+        background: Theme.accent.with-alpha(0.14);
+        border-width: 1px;
+        border-color: Theme.accent.with-alpha(0.55);
+        Text {
+            x: 14px;
+            y: 0px;
+            width: parent.width - 140px;
+            height: parent.height;
+            text: Backend.official-issue;
+            color: Theme.text;
+            font-family: Theme.body;
+            font-size: 12px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Btn {
+            x: parent.width - 116px;
+            y: 3px;
+            width: 106px;
+            height: 34px;
+            text: Backend.official-busy ? "WORKING" : "DISABLE";
+            enabled: !Backend.official-busy;
+            clicked => { Backend.official-disable(); }
+        }
+    }
     Label { x: 32px; y: 344px; text: "STATUS"; }
     Text { x: 32px; y: 362px; text: Backend.connected ? "Connected" : "Not connected"; color: Backend.connected ? Theme.accent : Theme.dim; font-family: Theme.body; font-size: 15px; font-weight: 600; }
     Label { x: 220px; y: 344px; text: "SERIAL"; }
@@ -992,6 +1026,22 @@ component SettingsPage inherits Rectangle {
         width: root.cw;
         label: "Serial number";
         Mono { x: parent.width - 260px; y: 0px; width: 260px; height: parent.height - 1px; text: Backend.serial; horizontal-alignment: right; vertical-alignment: center; }
+    }
+    Row {
+        x: root.cx;
+        y: 448px;
+        width: root.cw;
+        label: "Official EPOS software";
+        hint: Backend.official-issue == "" ? "Not running and not starting with Windows" : Backend.official-issue;
+        Btn {
+            x: parent.width - 110px;
+            y: 11px;
+            width: 110px;
+            text: Backend.official-busy ? "WORKING" : "DISABLE";
+            visible: Backend.official-issue != "";
+            enabled: !Backend.official-busy;
+            clicked => { Backend.official-disable(); }
+        }
     }
 }
 

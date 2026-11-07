@@ -6,6 +6,7 @@ mod audio;
 mod audiotest;
 mod config;
 mod mictest;
+mod official;
 mod presets;
 mod service;
 
@@ -263,9 +264,43 @@ impl Toast {
     }
 }
 
+/// Run this exe again with admin rights (UAC prompt) and wait for it to finish.
+fn run_elevated_and_wait(arg: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::WaitForSingleObject;
+    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    let Ok(exe) = std::env::current_exe() else { return };
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    let (file, params, verb) = (wide(&exe.to_string_lossy()), wide(arg), wide("runas"));
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: PCWSTR(verb.as_ptr()),
+        lpFile: PCWSTR(file.as_ptr()),
+        lpParameters: PCWSTR(params.as_ptr()),
+        nShow: 0,
+        ..Default::default()
+    };
+    unsafe {
+        if ShellExecuteExW(&mut info).is_ok() && !info.hProcess.is_invalid() {
+            WaitForSingleObject(info.hProcess, 60_000);
+            let _ = CloseHandle(info.hProcess);
+        }
+    }
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--service") {
         service::run();
+        return;
+    }
+    if std::env::args().any(|a| a == "--disable-official") {
+        official::disable();
+        return;
+    }
+    if std::env::args().any(|a| a == "--restore-official") {
+        official::restore();
         return;
     }
     let guard = single_instance::SingleInstance::new("EposControl-single-instance").ok();
@@ -316,6 +351,37 @@ fn main() {
     be.set_volume(audio::render_volume().unwrap_or(0.5));
     be.set_mic_muted(audio::capture_muted().unwrap_or(false));
     be.set_window_visible(!minimized);
+    be.set_official_issue(official::check().summary().into());
+    let official_timer = Timer::default();
+    {
+        let w = ui.as_weak();
+        official_timer.start(TimerMode::Repeated, Duration::from_secs(30), move || {
+            if let Some(ui) = w.upgrade() {
+                let be = ui.global::<Backend>();
+                if be.get_window_visible() {
+                    be.set_official_issue(official::check().summary().into());
+                }
+            }
+        });
+    }
+    {
+        let w = ui.as_weak();
+        be.on_official_disable(move || {
+            let Some(ui) = w.upgrade() else { return };
+            ui.global::<Backend>().set_official_busy(true);
+            let weak = w.clone();
+            std::thread::spawn(move || {
+                run_elevated_and_wait("--disable-official");
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = weak.upgrade() {
+                        let be = ui.global::<Backend>();
+                        be.set_official_busy(false);
+                        be.set_official_issue(official::check().summary().into());
+                    }
+                });
+            });
+        });
+    }
 
     let refresh_presets = {
         let cfg = cfg.clone();
@@ -892,6 +958,7 @@ fn main() {
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = w.upgrade() {
                     ui.global::<Backend>().set_window_visible(true);
+                    ui.global::<Backend>().set_official_issue(official::check().summary().into());
                     let _ = ui.show();
                 }
             });

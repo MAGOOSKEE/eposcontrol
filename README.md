@@ -51,3 +51,13 @@ The installer:
 - can restart the Windows audio service so the driver attaches to the new host.
 
 The audio driver itself (EPOS APO) must be installed. The official Gaming Suite installs it, or tick the driver task when the installer was built with `-OfficialMsi`.
+
+## Official EPOS Gaming Suite
+
+EposControl checks for the official software at startup, every 30 seconds while its window is open, and when the window is shown. It looks for the running app, the `EPOSGamingSuiteService` service, and startup entries (shortcuts in the Startup folders and Run registry values). If anything is active, the Home page shows a banner and Settings shows a row with a DISABLE button. Disabling asks for admin rights once and then:
+
+- closes the official app and stops its service, setting the service to disabled (not removed),
+- renames startup shortcuts to `*.eposcontrol-disabled`,
+- removes matching Run values after saving them to `%ProgramData%\EposControl\disabled-official-run.txt`.
+
+The installer does the same (`eposcontrol.exe --disable-official`) and the uninstaller reverses it (`--restore-official`).

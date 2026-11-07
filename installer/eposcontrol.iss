@@ -25,7 +25,7 @@ CloseApplications=force
 
 [Tasks]
 Name: "startup"; Description: "Start EposControl hidden in the system tray when Windows starts"; GroupDescription: "Startup:"
-Name: "replaceofficial"; Description: "Replace the official EPOS Gaming Suite background service (recommended)"; GroupDescription: "Audio driver host:"
+Name: "replaceofficial"; Description: "Turn off the official EPOS Gaming Suite (its service, app and startup entry)"; GroupDescription: "Audio driver host:"
 Name: "restartaudio"; Description: "Restart the Windows audio service now (briefly interrupts sound, needed once)"; GroupDescription: "Audio driver host:"
 Name: "installdriver"; Description: "Install the EPOS audio driver (only needed if it is not installed yet)"; GroupDescription: "Audio driver host:"; Check: DriverMissing; Flags: unchecked
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
@@ -48,9 +48,7 @@ Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; Driver, only when requested and the files were bundled.
 Filename: "{sys}\pnputil.exe"; Parameters: "/add-driver ""{app}\driver\eposaudio.inf"" /install"; Flags: runhidden waituntilterminated; StatusMsg: "Installing the EPOS audio driver..."; Tasks: installdriver; Check: DriverFilesPresent
 ; Make way for our host service.
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM EPOSGamingSuite.exe"; Flags: runhidden; Tasks: replaceofficial
-Filename: "{sys}\sc.exe"; Parameters: "stop EPOSGamingSuiteService"; Flags: runhidden waituntilterminated; Tasks: replaceofficial
-Filename: "{sys}\sc.exe"; Parameters: "config EPOSGamingSuiteService start= disabled"; Flags: runhidden waituntilterminated; Tasks: replaceofficial
+Filename: "{app}\eposcontrol.exe"; Parameters: "--disable-official"; Flags: runhidden waituntilterminated; Tasks: replaceofficial; StatusMsg: "Turning off the official EPOS Gaming Suite..."
 ; Our host service owns the shared memory the audio driver reads.
 Filename: "{sys}\sc.exe"; Parameters: "create EposControlHost binPath= ""\""{app}\eposcontrol.exe\"" --service"" start= auto obj= ""NT AUTHORITY\LocalService"" DisplayName= ""EposControl Audio Host"""; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "description EposControlHost ""Hosts the settings memory used by the EPOS audio driver for EposControl."""; Flags: runhidden waituntilterminated
@@ -60,15 +58,11 @@ Filename: "{sys}\net.exe"; Parameters: "start audiosrv"; Flags: runhidden waitun
 Filename: "{app}\eposcontrol.exe"; Description: "Open EposControl"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
+; Give the official software back (service, startup shortcut and Run entries) if it was turned off.
+Filename: "{app}\eposcontrol.exe"; Parameters: "--restore-official"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreOfficial"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM eposcontrol.exe"; Flags: runhidden; RunOnceId: "KillApp"
 Filename: "{sys}\sc.exe"; Parameters: "stop EposControlHost"; Flags: runhidden waituntilterminated; RunOnceId: "StopHost"
 Filename: "{sys}\sc.exe"; Parameters: "delete EposControlHost"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteHost"
-; Give the official service back if it is installed.
-Filename: "{sys}\sc.exe"; Parameters: "config EPOSGamingSuiteService start= auto"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreOfficialConfig"
-Filename: "{sys}\sc.exe"; Parameters: "start EPOSGamingSuiteService"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreOfficialStart"
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{userappdata}\EposControl"
 
 [Code]
 function DriverMissing: Boolean;
