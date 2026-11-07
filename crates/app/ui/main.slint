@@ -1,5 +1,13 @@
-// EposControl main window: three pages (output, microphone, settings) built from
-// rounded cards on a dark graphite backdrop with a blue to violet accent.
+// EposControl main window.
+// Flat instrument panel layout: nav rail on the left, page content on the right,
+// device artwork behind. The single accent colour mirrors the knob light.
+
+import "../../../assets/fonts/Barlow-Regular.ttf";
+import "../../../assets/fonts/Barlow-Medium.ttf";
+import "../../../assets/fonts/Barlow-SemiBold.ttf";
+import "../../../assets/fonts/BarlowSemiCondensed-Medium.ttf";
+import "../../../assets/fonts/BarlowSemiCondensed-SemiBold.ttf";
+import "../../../assets/fonts/IBMPlexMono-Regular.ttf";
 
 export global Backend {
     in-out property <[float]> eq: [0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -18,18 +26,28 @@ export global Backend {
     in property <string> playback-name: "EPOS GSX 300";
     in property <string> recording-name: "EPOS GSX 300";
     in property <string> version;
+    in property <string> serial;
+    in property <color> knob-color: #3b8cff;
+    in-out property <int> led-mode;
     in-out property <int> action-index;
     in-out property <string> action-param;
     in property <[string]> action-names;
     in property <string> param-hint;
     in property <bool> param-visible;
-    in-out property <int> led-index;
     in-out property <bool> autostart;
+    in-out property <bool> notifications: true;
+    in property <bool> test-playing;
+    in property <float> test-progress;
+    in property <string> test-time: "00:00";
+    in property <int> mic-test-state;
+    in property <float> mic-test-progress;
+    in property <string> mic-test-time: "00:00";
 
     callback eq-moved(int, float);
     callback preset-selected(int);
-    callback preset-add();
+    callback preset-add(string);
     callback surround-set(bool);
+    callback toggle-surround();
     callback reverb-set(float);
     callback voice-set(int);
     callback gain-set(float);
@@ -39,122 +57,189 @@ export global Backend {
     callback refresh-volume();
     callback poll-spectrum();
     callback page-changed(int);
-    callback led-selected(int);
+    callback led-mode-selected(int);
     callback action-selected(int);
     callback param-edited(string);
     callback autostart-toggled(bool);
+    callback notifications-toggled(bool);
+    callback test-toggle();
+    callback mic-test-record();
+    callback mic-test-play();
+    callback mic-test-stop();
     callback drag-window();
     callback minimize();
     callback close();
 }
 
 global Theme {
-    out property <color> accent: #6ea8ff;
-    out property <color> accent2: #b987ff;
-    out property <color> text: #eef1f8;
-    out property <color> dim: #8b94ab;
-    out property <color> surface: #1a2031;
-    out property <color> surface-hi: #252d44;
-    out property <color> edge: #ffffff12;
-    out property <brush> backdrop: @linear-gradient(165deg, #151a2b 0%, #0e111b 100%);
-    out property <brush> aurora: @linear-gradient(90deg, #6ea8ff 0%, #b987ff 100%);
+    out property <color> bg: #0d0e11;
+    out property <color> rail: #090a0c;
+    out property <color> field: #16181d;
+    out property <color> field-hi: #1e2128;
+    out property <color> rule: #262a31;
+    out property <color> text: #e8eaed;
+    out property <color> dim: #868c96;
+    out property <color> accent: Backend.knob-color;
+    out property <color> accent-ink: #0b0c0e;
+    out property <string> body: "Barlow";
+    out property <string> label: "Barlow Semi Condensed";
+    out property <string> mono: "IBM Plex Mono";
 }
 
-component Cap inherits Text {
+global Art {
+    // Position and size of the device picture and the knob centre inside it.
+    out property <length> w: 520px;
+    out property <length> h: 292px;
+    out property <float> knob-fx: 0.719;
+    out property <float> knob-fy: 0.589;
+    out property <float> ring-r: 0.184;
+}
+
+component Label inherits Text {
     color: Theme.dim;
+    font-family: Theme.label;
     font-size: 11px;
-    letter-spacing: 1.2px;
-    font-weight: 700;
+    font-weight: 600;
+    letter-spacing: 1.4px;
 }
 
-component Card inherits Rectangle {
-    background: Theme.surface;
-    border-radius: 16px;
-    border-width: 1px;
-    border-color: Theme.edge;
+component Mono inherits Text {
+    color: Theme.text;
+    font-family: Theme.mono;
+    font-size: 12px;
 }
 
-component IconBtn inherits Rectangle {
+component Rule inherits Rectangle {
+    height: 1px;
+    background: Theme.rule;
+}
+
+component Btn inherits Rectangle {
+    in property <string> text;
     in property <image> icon;
-    in property <color> tint: Theme.text;
-    in property <length> glyph: 22px;
+    in property <bool> active;
+    in property <bool> enabled: true;
     callback clicked;
-    width: 36px;
-    height: 36px;
-    border-radius: 18px;
-    background: area.has-hover ? Theme.text.with-alpha(0.10) : transparent;
-    Image {
-        source: root.icon;
-        width: root.glyph;
-        height: root.glyph;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        colorize: root.tint;
-    }
-    area := TouchArea { clicked => { root.clicked(); } }
-}
-
-component Dropdown inherits Rectangle {
-    in property <string> label;
-    in property <[string]> items;
-    in property <length> menu-width: 170px;
-    in property <bool> boxed: true;
-    callback picked(int);
-    callback opened();
-    height: 34px;
-    width: max(row.preferred-width + 8px, 90px);
-    background: area.has-hover ? Theme.surface-hi : (root.boxed ? Theme.surface : transparent);
-    border-radius: 17px;
-    border-width: root.boxed ? 1px : 0px;
-    border-color: Theme.edge;
+    height: 32px;
+    width: max(34px, row.preferred-width + 24px);
+    border-radius: 2px;
+    border-width: 1px;
+    border-color: root.active ? Theme.accent : Theme.rule;
+    background: area.has-hover && root.enabled ? Theme.field-hi : Theme.field;
+    opacity: root.enabled ? 1.0 : 0.4;
     row := HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 6px;
-        spacing: 0px;
-        Text {
-            text: root.label;
-            color: Theme.text;
+        alignment: center;
+        spacing: 8px;
+        padding-left: 4px;
+        padding-right: 4px;
+        if root.icon.width > 0: Image {
+            source: root.icon;
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            colorize: root.active ? Theme.accent : Theme.text;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            color: root.active ? Theme.accent : Theme.text;
+            font-family: Theme.label;
             font-size: 12px;
+            font-weight: 600;
             letter-spacing: 0.8px;
             vertical-alignment: center;
         }
-        Image {
-            source: @image-url("../../../assets/icons/arrow_drop_down.svg");
-            width: 22px;
-            height: 22px;
-            y: (parent.height - self.height) / 2;
-            colorize: Theme.dim;
-        }
+    }
+    area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+component Select inherits Rectangle {
+    in property <string> label;
+    in property <[string]> items;
+    in property <length> menu-width: 180px;
+    callback picked(int);
+    callback opened();
+    height: 32px;
+    border-radius: 2px;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: area.has-hover ? Theme.field-hi : Theme.field;
+    Text {
+        x: 12px;
+        width: parent.width - 36px;
+        text: root.label;
+        color: Theme.text;
+        font-family: Theme.label;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Image {
+        x: parent.width - 24px;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        source: @image-url("../../../assets/icons/arrow_drop_down.svg");
+        colorize: Theme.dim;
     }
     area := TouchArea { clicked => { root.opened(); pop.show(); } }
     pop := PopupWindow {
         x: root.width - root.menu-width;
-        y: root.height + 4px;
+        y: root.height + 2px;
         width: root.menu-width;
         Rectangle {
-            background: Theme.surface-hi;
-            border-radius: 12px;
+            background: Theme.field-hi;
             border-width: 1px;
-            border-color: Theme.edge;
+            border-color: Theme.rule;
             VerticalLayout {
-                padding: 6px;
-                spacing: 2px;
                 for item[i] in root.items: Rectangle {
                     height: 32px;
-                    border-radius: 8px;
-                    background: ia.has-hover ? Theme.accent.with-alpha(0.18) : transparent;
+                    background: ia.has-hover ? Theme.accent.with-alpha(0.22) : transparent;
                     Text {
                         x: 12px;
+                        width: parent.width - 24px;
                         text: item;
                         color: Theme.text;
+                        font-family: Theme.label;
                         font-size: 12px;
+                        font-weight: 600;
                         letter-spacing: 0.6px;
                         vertical-alignment: center;
+                        overflow: elide;
                     }
                     ia := TouchArea { clicked => { root.picked(i); } }
                 }
             }
         }
+    }
+}
+
+component Seg inherits Rectangle {
+    in property <[string]> labels;
+    in property <int> index;
+    in property <length> cell: 64px;
+    callback picked(int);
+    height: 32px;
+    width: root.labels.length * root.cell;
+    for t[i] in root.labels: Rectangle {
+        x: i * root.cell;
+        width: root.cell;
+        height: parent.height;
+        border-width: 1px;
+        border-color: root.index == i ? Theme.accent : Theme.rule;
+        background: root.index == i ? Theme.accent : (sa.has-hover ? Theme.field-hi : Theme.field);
+        Text {
+            text: t;
+            color: root.index == i ? Theme.accent-ink : Theme.text;
+            font-family: Theme.label;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.8px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        sa := TouchArea { clicked => { root.picked(i); } }
     }
 }
 
@@ -166,34 +251,30 @@ component Slim inherits Rectangle {
     opacity: root.enabled ? 1.0 : 0.35;
     Rectangle {
         x: 0px;
-        y: (parent.height - 4px) / 2;
+        y: (parent.height - 2px) / 2;
         width: parent.width;
-        height: 4px;
-        border-radius: 2px;
-        background: Theme.surface-hi;
+        height: 2px;
+        background: Theme.rule;
     }
     Rectangle {
         x: 0px;
-        y: (parent.height - 4px) / 2;
-        width: root.value * (parent.width - 18px) + 9px;
-        height: 4px;
-        border-radius: 2px;
-        background: Theme.aurora;
+        y: (parent.height - 2px) / 2;
+        width: root.value * (parent.width - 8px) + 4px;
+        height: 2px;
+        background: Theme.accent;
     }
     Rectangle {
-        x: root.value * (parent.width - 18px);
+        x: root.value * (parent.width - 8px);
         y: (parent.height - 18px) / 2;
-        width: 18px;
+        width: 8px;
         height: 18px;
-        border-radius: 9px;
-        background: white;
-        border-width: 3px;
-        border-color: Theme.accent;
+        border-radius: 1px;
+        background: Theme.text;
     }
     TouchArea {
         enabled: root.enabled;
         function upd() {
-            root.value = max(0.0, min(1.0, (self.mouse-x - 9px) / (self.width - 18px)));
+            root.value = max(0.0, min(1.0, (self.mouse-x - 4px) / (self.width - 8px)));
             root.changed(root.value);
         }
         pointer-event(e) => {
@@ -203,74 +284,24 @@ component Slim inherits Rectangle {
     }
 }
 
-component Toggle inherits Rectangle {
-    in-out property <bool> on;
-    callback toggled(bool);
-    width: 50px;
-    height: 28px;
-    border-radius: 14px;
-    background: root.on ? Theme.accent : Theme.surface-hi;
-    Rectangle {
-        x: root.on ? 25px : 3px;
-        y: 3px;
-        width: 22px;
-        height: 22px;
-        border-radius: 11px;
-        background: white;
-        animate x { duration: 120ms; }
-    }
-    TouchArea { clicked => { root.on = !root.on; root.toggled(root.on); } }
-}
-
-component Pills inherits Rectangle {
-    in property <[string]> labels;
-    in property <int> index;
-    in property <length> cell: 64px;
-    callback picked(int);
-    height: 38px;
-    width: root.labels.length * root.cell + 8px;
-    border-radius: 19px;
-    background: Theme.surface-hi;
-    for t[i] in root.labels: Rectangle {
-        x: 4px + i * root.cell;
-        y: 4px;
-        width: root.cell;
-        height: 30px;
-        border-radius: 15px;
-        background: root.index == i ? Theme.accent : transparent;
-        Text {
-            text: t;
-            color: root.index == i ? #0e111b : Theme.text;
-            font-size: 12px;
-            font-weight: 700;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-        TouchArea { clicked => { root.picked(i); } }
-    }
-}
-
 component Steps3 inherits Rectangle {
     in property <int> index;
     callback picked(int);
     height: 28px;
     Rectangle {
         x: 0px;
-        y: (parent.height - 4px) / 2;
+        y: (parent.height - 2px) / 2;
         width: parent.width;
-        height: 4px;
-        border-radius: 2px;
-        background: Theme.surface-hi;
+        height: 2px;
+        background: Theme.rule;
     }
     for i in 3: Rectangle {
-        width: root.index == i ? 18px : 10px;
-        height: self.width;
-        border-radius: self.width / 2;
-        x: i * (root.width - 18px) / 2 + (18px - self.width) / 2;
-        y: (root.height - self.height) / 2;
-        background: root.index == i ? white : Theme.dim;
-        border-width: root.index == i ? 3px : 0px;
-        border-color: Theme.accent;
+        x: i * (root.width - 10px) / 2;
+        y: (root.height - 10px) / 2;
+        width: 10px;
+        height: 10px;
+        border-radius: 1px;
+        background: root.index == i ? Theme.accent : Theme.dim;
     }
     TouchArea {
         pointer-event(e) => {
@@ -281,8 +312,33 @@ component Steps3 inherits Rectangle {
     }
 }
 
+// One labelled row of a settings list: label on the left, control slot on the right.
+component Row inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    height: 52px;
+    Rule { y: parent.height - 1px; }
+    Text {
+        x: 0px;
+        y: root.hint == "" ? (parent.height - self.height) / 2 : 9px;
+        text: root.label;
+        color: Theme.text;
+        font-family: Theme.body;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    if root.hint != "": Text {
+        x: 0px;
+        y: 29px;
+        text: root.hint;
+        color: Theme.dim;
+        font-family: Theme.body;
+        font-size: 11px;
+    }
+}
+
 component EqGraph inherits Rectangle {
-    property <length> lw: 48px;
+    property <length> lw: 44px;
     property <length> cw: (root.width - lw) / 9;
     property <int> dragging: -1;
     pure function py(db: float) -> length { return (6 - db) / 12 * root.height; }
@@ -291,16 +347,16 @@ component EqGraph inherits Rectangle {
     pure function cx(i: int) -> length { return px(max(0, min(8, i))); }
     pure function cy(i: int) -> length { return py(Backend.eq[max(0, min(8, i))]); }
     pure function clampy(v: length) -> length { return max(0px, min(root.height, v)); }
-    // Cubic Bezier segment from point i to i+1 (Catmull-Rom tangents).
+    // Cubic Bezier segment from point i to i+1 using Catmull-Rom tangents.
     pure function seg(i: int) -> string {
         return "C \{n(cx(i) + (cx(i + 1) - cx(i - 1)) / 6)} \{n(clampy(cy(i) + (cy(i + 1) - cy(i - 1)) / 6))} \{n(cx(i + 1) - (cx(i + 2) - cx(i)) / 6)} \{n(clampy(cy(i + 1) - (cy(i + 2) - cy(i)) / 6))} \{n(cx(i + 1))} \{n(cy(i + 1))}";
     }
     property <string> line: "M \{n(cx(0))} \{n(cy(0))} " + seg(0) + " " + seg(1) + " " + seg(2) + " " + seg(3) + " " + seg(4) + " " + seg(5) + " " + seg(6) + " " + seg(7);
 
-    for lab[k] in ["+6", "+3", "0", "-3", "-6"]: Text {
+    for lab[k] in ["+6", "+3", "0", "-3", "-6"]: Mono {
         x: 0px;
         y: k * root.height / 4 - 8px;
-        width: lw - 12px;
+        width: lw - 10px;
         height: 16px;
         text: lab;
         color: Theme.dim;
@@ -312,37 +368,14 @@ component EqGraph inherits Rectangle {
         y: k * root.height / 4;
         width: root.width - lw;
         height: 1px;
-        background: k == 2 ? Theme.text.with-alpha(0.22) : Theme.text.with-alpha(0.06);
-    }
-    // Per band track with a fill from the zero line to the handle.
-    for i in 9: Rectangle {
-        x: px(i) - 2px;
-        y: 0px;
-        width: 4px;
-        height: root.height;
-        border-radius: 2px;
-        background: Theme.text.with-alpha(0.05);
+        background: k == 2 ? Theme.dim.with-alpha(0.55) : Theme.rule;
     }
     for i in 9: Rectangle {
-        x: px(i) - 2px;
-        y: min(py(0), py(Backend.eq[i]));
-        width: 4px;
-        height: max(1px, abs(py(Backend.eq[i]) - py(0)));
-        border-radius: 2px;
-        background: Theme.aurora;
-        opacity: 0.55;
-    }
-    Path {
-        x: 0px;
+        x: px(i);
         y: 0px;
-        width: root.width;
+        width: 1px;
         height: root.height;
-        viewbox-x: 0;
-        viewbox-y: 0;
-        viewbox-width: root.width / 1px;
-        viewbox-height: root.height / 1px;
-        fill: @linear-gradient(180deg, #6ea8ff30 0%, #b987ff00 100%);
-        commands: root.line + " L \{n(cx(8))} \{n(py(0))} L \{n(cx(0))} \{n(py(0))} Z";
+        background: Theme.rule;
     }
     Path {
         x: 0px;
@@ -354,26 +387,36 @@ component EqGraph inherits Rectangle {
         viewbox-width: root.width / 1px;
         viewbox-height: root.height / 1px;
         stroke: Theme.accent;
-        stroke-width: 2.5px;
-        stroke-line-cap: round;
+        stroke-width: 2px;
         commands: root.line;
     }
     for i in 9: Rectangle {
-        x: px(i) - 8px;
-        y: py(Backend.eq[i]) - 8px;
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
-        background: white;
-        border-width: 3px;
-        border-color: root.dragging == i ? Theme.accent2 : Theme.accent;
+        x: px(i) - 6px;
+        y: py(Backend.eq[i]) - 6px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: root.dragging == i ? Theme.accent : Theme.bg;
+        border-width: 2px;
+        border-color: Theme.accent;
     }
     for i in 9: Text {
         x: px(i) - 30px;
         y: root.height + 12px;
         width: 60px;
         text: ["64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"][i];
-        color: Theme.dim;
+        color: Theme.text;
+        font-family: Theme.label;
+        font-size: 12px;
+        font-weight: 600;
+        horizontal-alignment: center;
+    }
+    for i in 9: Mono {
+        x: px(i) - 30px;
+        y: root.height + 32px;
+        width: 60px;
+        text: (Backend.eq[i] >= 0 ? "+" : "") + round(Backend.eq[i] * 10) / 10;
+        color: root.dragging == i ? Theme.accent : Theme.dim;
         font-size: 11px;
         horizontal-alignment: center;
     }
@@ -392,296 +435,320 @@ component EqGraph inherits Rectangle {
         }
         moved => { self.upd(); }
     }
-    if root.dragging >= 0: Rectangle {
-        x: px(root.dragging) - 36px;
-        y: max(0px, py(Backend.eq[root.dragging]) - 44px);
-        width: 72px;
-        height: 24px;
-        border-radius: 12px;
-        background: Theme.surface-hi;
-        border-width: 1px;
-        border-color: Theme.edge;
-        Text {
-            text: (Backend.eq[root.dragging] >= 0 ? "+" : "") + round(Backend.eq[root.dragging] * 100) / 100 + " dB";
-            color: white;
-            font-size: 12px;
-            font-weight: 700;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
 }
 
 component OutputPage inherits Rectangle {
-    Card {
+    Label { x: 32px; y: 22px; text: "EQUALIZER  /  9 BAND, 64 HZ TO 16 KHZ"; }
+    EqGraph {
         x: 32px;
-        y: 8px;
+        y: 62px;
         width: parent.width - 64px;
-        height: 330px;
-        Cap { x: 24px; y: 18px; text: "EQUALIZER"; }
-        Text {
-            x: parent.width - 224px;
-            y: 18px;
-            width: 200px;
-            text: "Drag a band to shape the sound";
-            color: Theme.dim;
-            font-size: 11px;
-            horizontal-alignment: right;
-        }
-        EqGraph {
-            x: 24px;
-            y: 60px;
-            width: parent.width - 48px;
-            height: 220px;
-        }
+        height: 200px;
     }
-    Card {
+    Rule { x: 32px; y: 352px; width: parent.width - 64px; }
+
+    Label { x: 32px; y: 376px; text: "SURROUND"; }
+    Seg {
         x: 32px;
-        y: 352px;
-        width: parent.width - 64px;
-        height: 96px;
-        Cap { x: 24px; y: 22px; text: "SURROUND"; }
-        Text { x: 24px; y: 40px; text: "Virtual 7.1 for headphones"; color: Theme.dim; font-size: 11px; }
-        Pills {
-            x: 250px;
-            y: 29px;
-            labels: ["2.0", "7.1"];
-            index: Backend.surround ? 1 : 0;
-            picked(i) => { Backend.surround = i == 1; Backend.surround-set(i == 1); }
-        }
-        Cap {
-            x: 470px;
-            y: 22px;
-            text: "REVERBERATION";
-            opacity: Backend.surround ? 1.0 : 0.4;
-        }
-        Text {
-            x: 470px;
-            y: 40px;
-            text: Backend.surround ? "Room ambience" : "Available in 7.1 mode";
-            color: Theme.dim;
-            font-size: 11px;
-        }
-        Slim {
-            x: 650px;
-            y: 34px;
-            width: parent.width - 650px - 28px;
-            enabled: Backend.surround;
-            value <=> Backend.reverb;
-            changed(v) => { Backend.reverb-set(v); }
-        }
+        y: 400px;
+        labels: ["2.0", "7.1"];
+        index: Backend.surround ? 1 : 0;
+        picked(i) => { Backend.surround-set(i == 1); }
+    }
+    Label { x: 32px; y: 446px; text: Backend.surround ? "Virtual 7.1 for headphones" : "Stereo"; color: Theme.dim; font-weight: 500; letter-spacing: 0.4px; }
+
+    Label { x: 250px; y: 376px; text: "REVERBERATION"; opacity: Backend.surround ? 1.0 : 0.45; }
+    Slim {
+        x: 250px;
+        y: 398px;
+        width: 250px;
+        enabled: Backend.surround;
+        value <=> Backend.reverb;
+        changed(v) => { Backend.reverb-set(v); }
+    }
+    Mono {
+        x: 510px;
+        y: 404px;
+        text: round(Backend.reverb * 100) + "%";
+        color: Backend.surround ? Theme.text : Theme.dim;
+    }
+    Label { x: 250px; y: 446px; text: Backend.surround ? "" : "7.1 mode only"; font-weight: 500; letter-spacing: 0.4px; }
+
+    Label { x: 640px; y: 376px; text: "SOUND TEST"; }
+    Btn {
+        x: 640px;
+        y: 398px;
+        icon: Backend.test-playing ? @image-url("../../../assets/icons/stop.svg") : @image-url("../../../assets/icons/play_arrow.svg");
+        text: Backend.test-playing ? "STOP" : "PLAY";
+        active: Backend.test-playing;
+        clicked => { Backend.test-toggle(); }
+    }
+    Mono { x: 750px; y: 404px; text: Backend.test-time; }
+    Rectangle {
+        x: 640px;
+        y: 446px;
+        width: 230px;
+        height: 2px;
+        background: Theme.rule;
+        Rectangle { width: parent.width * Backend.test-progress; height: parent.height; background: Theme.accent; }
     }
 }
 
 component MicPage inherits Rectangle {
-    Card {
+    Label { x: 32px; y: 22px; text: "MICROPHONE"; }
+    Row {
         x: 32px;
-        y: 8px;
-        width: parent.width - 64px;
-        height: 214px;
-        Cap { x: 24px; y: 18px; text: "MICROPHONE LEVEL"; }
-        Text {
-            x: parent.width - 224px;
-            y: 18px;
-            width: 200px;
-            text: "Live input spectrum";
-            color: Theme.dim;
-            font-size: 11px;
-            horizontal-alignment: right;
-        }
-        for v[i] in Backend.spectrum: Rectangle {
-            property <length> h: max(6px, min(150px, (v + 80) / 70 * 150px));
-            width: 14px;
-            height: self.h;
-            x: 40px + i * (parent.width - 96px) / 14;
-            y: 190px - self.h;
-            border-radius: 5px;
-            background: Theme.aurora;
-            opacity: 0.9;
-        }
-    }
-    Card {
-        x: 32px;
-        y: 238px;
-        width: (parent.width - 64px - 48px) / 4;
-        height: 150px;
-        Cap { x: 20px; y: 18px; text: "VOICE ENHANCER"; }
-        Dropdown {
-            x: 20px;
-            y: 56px;
+        y: 50px;
+        width: 450px;
+        label: "Voice enhancer";
+        hint: "Shapes the tone of your voice";
+        Select {
+            x: parent.width - 150px;
+            y: 10px;
+            width: 150px;
             label: ["OFF", "WARM", "CLEAR"][Backend.voice];
             items: ["OFF", "WARM", "CLEAR"];
             menu-width: 150px;
             picked(i) => { Backend.voice = i; Backend.voice-set(i); }
         }
-        Text {
-            x: 20px;
-            y: 104px;
-            width: parent.width - 40px;
-            text: "Shapes your voice tone";
-            color: Theme.dim;
-            font-size: 11px;
-        }
     }
-    Card {
-        x: 32px + (parent.width - 64px - 48px) / 4 + 16px;
-        y: 238px;
-        width: (parent.width - 64px - 48px) / 4;
-        height: 150px;
-        Cap { x: 20px; y: 18px; text: "GAIN"; }
-        Slim { x: 20px; y: 56px; width: parent.width - 40px; value <=> Backend.gain; changed(v) => { Backend.gain-set(v); } }
-        Text { x: 20px; y: 104px; text: "Microphone input level"; color: Theme.dim; font-size: 11px; }
+    Row {
+        x: 32px;
+        y: 102px;
+        width: 450px;
+        label: "Gain";
+        hint: "Microphone input level";
+        Slim { x: parent.width - 220px; y: 12px; width: 170px; value <=> Backend.gain; changed(v) => { Backend.gain-set(v); } }
+        Mono { x: parent.width - 40px; y: 18px; text: round(Backend.gain * 100) + ""; }
     }
-    Card {
-        x: 32px + 2 * ((parent.width - 64px - 48px) / 4 + 16px);
-        y: 238px;
-        width: (parent.width - 64px - 48px) / 4;
-        height: 150px;
-        Cap { x: 20px; y: 18px; text: "NOISE GATE"; }
-        Slim { x: 20px; y: 56px; width: parent.width - 40px; value <=> Backend.gate; changed(v) => { Backend.gate-set(v); } }
-        Text { x: 20px; y: 104px; text: "Mutes sound below this level"; color: Theme.dim; font-size: 11px; }
+    Row {
+        x: 32px;
+        y: 154px;
+        width: 450px;
+        label: "Noise gate";
+        hint: "Mutes sound below this level";
+        Slim { x: parent.width - 220px; y: 12px; width: 170px; value <=> Backend.gate; changed(v) => { Backend.gate-set(v); } }
+        Mono { x: parent.width - 40px; y: 18px; text: round(Backend.gate * 100) + ""; }
     }
-    Card {
-        x: 32px + 3 * ((parent.width - 64px - 48px) / 4 + 16px);
-        y: 238px;
-        width: (parent.width - 64px - 48px) / 4;
-        height: 150px;
-        Cap { x: 20px; y: 18px; text: "NOISE CANCELLATION"; }
+    Row {
+        x: 32px;
+        y: 206px;
+        width: 450px;
+        label: "Noise cancellation";
+        hint: "Low, medium or high";
         Steps3 {
-            x: 20px;
-            y: 56px;
-            width: parent.width - 40px;
+            x: parent.width - 150px;
+            y: 12px;
+            width: 150px;
             index: Backend.nc;
             picked(i) => { Backend.nc = i; Backend.nc-set(i); }
         }
-        Text { x: 20px; y: 104px; text: "Low, medium or high"; color: Theme.dim; font-size: 11px; }
     }
+
+    Label { x: 530px; y: 22px; text: "INPUT SPECTRUM"; }
+    Rectangle {
+        x: 530px;
+        y: 50px;
+        width: 400px;
+        height: 200px;
+        for v[i] in Backend.spectrum: Rectangle {
+            property <length> h: max(2px, min(200px, (v + 80) / 70 * 200px));
+            width: 10px;
+            height: self.h;
+            x: 8px + i * (parent.width - 36px) / 14;
+            y: parent.height - self.h;
+            background: Theme.accent;
+        }
+        Rule { y: parent.height; }
+    }
+
+    Rule { x: 530px; y: 290px; width: 400px; }
+    Label { x: 530px; y: 308px; text: "MIC TEST"; }
+    Btn {
+        x: 530px;
+        y: 334px;
+        icon: Backend.mic-test-state == 1 ? @image-url("../../../assets/icons/stop.svg") : @image-url("../../../assets/icons/fiber_manual_record.svg");
+        text: Backend.mic-test-state == 1 ? "STOP" : "RECORD";
+        active: Backend.mic-test-state == 1;
+        enabled: Backend.mic-test-state != 3;
+        clicked => { if (Backend.mic-test-state == 1) { Backend.mic-test-stop(); } else { Backend.mic-test-record(); } }
+    }
+    Btn {
+        x: 660px;
+        y: 334px;
+        icon: Backend.mic-test-state == 3 ? @image-url("../../../assets/icons/stop.svg") : @image-url("../../../assets/icons/play_arrow.svg");
+        text: Backend.mic-test-state == 3 ? "STOP" : "PLAY";
+        active: Backend.mic-test-state == 3;
+        enabled: Backend.mic-test-state == 2 || Backend.mic-test-state == 3;
+        clicked => { if (Backend.mic-test-state == 3) { Backend.mic-test-stop(); } else { Backend.mic-test-play(); } }
+    }
+    Mono { x: 780px; y: 340px; text: Backend.mic-test-time; }
+    Rectangle {
+        x: 530px;
+        y: 384px;
+        width: 400px;
+        height: 2px;
+        background: Theme.rule;
+        Rectangle { width: parent.width * Backend.mic-test-progress; height: parent.height; background: Theme.accent; }
+    }
+    Label { x: 530px; y: 396px; text: "Records from the default input device"; font-weight: 500; letter-spacing: 0.4px; }
 }
 
 component SettingsPage inherits Rectangle {
-    Card {
+    Label { x: 32px; y: 22px; text: "SETTINGS"; }
+    Row {
         x: 32px;
-        y: 8px;
-        width: 300px;
-        height: 330px;
-        Cap { x: 22px; y: 20px; text: "DEVICE"; }
-        Text { x: 22px; y: 48px; text: "EPOS GSX 300"; color: Theme.text; font-size: 16px; font-weight: 700; }
-        Rectangle {
-            x: 22px;
-            y: 84px;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background: Backend.connected ? #38d39f : #6b7390;
-        }
-        Text {
-            x: 40px;
-            y: 80px;
-            text: Backend.connected ? "Connected" : "Not connected";
-            color: Backend.connected ? #38d39f : Theme.dim;
-            font-size: 12px;
-        }
-        Cap { x: 22px; y: 130px; text: "PLAYBACK"; }
-        Text { x: 22px; y: 150px; width: parent.width - 44px; text: Backend.playback-name; color: Theme.text; font-size: 12px; overflow: elide; }
-        Cap { x: 22px; y: 194px; text: "RECORDING"; }
-        Text { x: 22px; y: 214px; width: parent.width - 44px; text: Backend.recording-name; color: Theme.text; font-size: 12px; overflow: elide; }
-        Cap { x: 22px; y: 270px; text: "VERSION"; }
-        Text { x: 22px; y: 290px; text: Backend.version; color: Theme.text; font-size: 12px; }
+        y: 50px;
+        width: 400px;
+        label: "Device";
+        hint: Backend.connected ? "Connected" : "Not connected";
+        Mono { x: parent.width - 180px; y: 19px; width: 180px; text: "EPOS GSX 300"; horizontal-alignment: right; }
     }
-    Card {
-        x: 348px;
-        y: 8px;
-        width: parent.width - 348px - 32px;
-        height: 330px;
-        Cap { x: 24px; y: 20px; text: "SMART BUTTON"; }
-        Dropdown {
-            x: 24px;
-            y: 44px;
+    Row {
+        x: 32px;
+        y: 102px;
+        width: 400px;
+        label: "Smart button";
+        hint: "Action when pressed";
+        Select {
+            x: parent.width - 210px;
+            y: 10px;
+            width: 210px;
             label: Backend.action-names[Backend.action-index];
             items: Backend.action-names;
-            menu-width: 280px;
+            menu-width: 300px;
             picked(i) => { Backend.action-index = i; Backend.action-selected(i); }
         }
-        if Backend.param-visible: Rectangle {
-            x: 24px;
-            y: 92px;
-            width: parent.width - 48px;
-            height: 38px;
-            border-radius: 10px;
-            background: Theme.surface-hi;
+    }
+    if Backend.param-visible: Row {
+        x: 32px;
+        y: 154px;
+        width: 400px;
+        label: "Details";
+        hint: Backend.param-hint;
+        Rectangle {
+            x: parent.width - 210px;
+            y: 10px;
+            width: 210px;
+            height: 32px;
+            border-width: 1px;
+            border-color: Theme.rule;
+            background: Theme.field;
             TextInput {
-                x: 14px;
-                width: parent.width - 28px;
+                x: 10px;
+                width: parent.width - 20px;
                 text: Backend.action-param;
                 color: Theme.text;
+                font-family: Theme.mono;
                 font-size: 12px;
                 vertical-alignment: center;
                 edited => { Backend.param-edited(self.text); }
             }
         }
-        if Backend.param-visible: Text {
-            x: 24px;
-            y: 136px;
-            width: parent.width - 48px;
-            text: Backend.param-hint;
-            color: Theme.dim;
-            font-size: 11px;
-            wrap: word-wrap;
-        }
-        Cap { x: 24px; y: 200px; text: "KNOB LIGHT"; }
-        for name[i] in ["OFF", "RED", "BLUE", "PURPLE"]: Rectangle {
-            x: 24px + i * 104px;
-            y: 226px;
-            width: 96px;
-            height: 38px;
-            border-radius: 19px;
-            background: Backend.led-index == i ? Theme.accent.with-alpha(0.18) : Theme.surface-hi;
-            border-width: 1px;
-            border-color: Backend.led-index == i ? Theme.accent : Theme.edge;
-            Rectangle {
-                x: 14px;
-                y: (parent.height - 12px) / 2;
-                width: 12px;
-                height: 12px;
-                border-radius: 6px;
-                background: [#00000000, #ef5350, #42a5f5, #ab47bc][i];
-                border-width: 1px;
-                border-color: Theme.dim;
-            }
-            Text { x: 34px; text: name; color: Theme.text; font-size: 11px; font-weight: 700; vertical-alignment: center; }
-            TouchArea { clicked => { Backend.led-index = i; Backend.led-selected(i); } }
-        }
     }
-    Card {
+    Row {
         x: 32px;
-        y: 352px;
-        width: parent.width - 64px;
-        height: 80px;
-        Text { x: 24px; y: 18px; text: "Launch at startup"; color: Theme.text; font-size: 14px; font-weight: 700; }
-        Text { x: 24px; y: 42px; text: "Start silently in the system tray when you sign in"; color: Theme.dim; font-size: 11px; }
-        Toggle {
-            x: parent.width - 74px;
-            y: 26px;
-            on <=> Backend.autostart;
-            toggled(v) => { Backend.autostart-toggled(v); }
+        y: Backend.param-visible ? 206px : 154px;
+        width: 400px;
+        label: "Knob light";
+        hint: "Auto: blue in 2.0, red in 7.1";
+        Seg {
+            x: parent.width - 260px;
+            y: 10px;
+            cell: 52px;
+            labels: ["AUTO", "OFF", "RED", "BLUE", "VIOLET"];
+            index: Backend.led-mode;
+            picked(i) => { Backend.led-mode = i; Backend.led-mode-selected(i); }
         }
     }
+    Row {
+        x: 32px;
+        y: Backend.param-visible ? 258px : 206px;
+        width: 400px;
+        label: "Notifications";
+        hint: "Show a message when the sound mode changes";
+        Btn {
+            x: parent.width - 100px;
+            y: 10px;
+            width: 100px;
+            text: Backend.notifications ? "ENABLED" : "DISABLED";
+            active: Backend.notifications;
+            clicked => { Backend.notifications = !Backend.notifications; Backend.notifications-toggled(Backend.notifications); }
+        }
+    }
+    Row {
+        x: 32px;
+        y: Backend.param-visible ? 310px : 258px;
+        width: 400px;
+        label: "Show on startup";
+        hint: "Start hidden in the system tray";
+        Btn {
+            x: parent.width - 100px;
+            y: 10px;
+            width: 100px;
+            text: Backend.autostart ? "ENABLED" : "DISABLED";
+            active: Backend.autostart;
+            clicked => { Backend.autostart = !Backend.autostart; Backend.autostart-toggled(Backend.autostart); }
+        }
+    }
+    Row {
+        x: 32px;
+        y: Backend.param-visible ? 362px : 310px;
+        width: 400px;
+        label: "Playback";
+        Text { x: parent.width - 260px; y: 17px; width: 260px; text: Backend.playback-name; color: Theme.dim; font-family: Theme.body; font-size: 12px; horizontal-alignment: right; overflow: elide; }
+    }
+    Row {
+        x: 32px;
+        y: Backend.param-visible ? 414px : 362px;
+        width: 400px;
+        label: "Recording";
+        Text { x: parent.width - 260px; y: 17px; width: 260px; text: Backend.recording-name; color: Theme.dim; font-family: Theme.body; font-size: 12px; horizontal-alignment: right; overflow: elide; }
+    }
+    Label { x: 32px; y: 480px; text: "VERSION " + Backend.version + "    SERIAL " + Backend.serial; font-weight: 500; letter-spacing: 0.6px; }
 }
 
 export component MainWindow inherits Window {
     no-frame: true;
     width: 1040px;
-    height: 590px;
+    height: 600px;
     title: "EposControl";
-    background: #0e111b;
+    background: Theme.bg;
+    default-font-family: Theme.body;
+    default-font-size: 13px;
     property <int> page: 0;
+    property <length> rail-w: 88px;
 
+    // Device artwork. Dimmed on the control pages, full on settings.
+    Image {
+        x: root.width - Art.w - 12px;
+        y: root.height - Art.h - 28px;
+        width: Art.w;
+        height: Art.h;
+        source: @image-url("../../../assets/gsx300.svg");
+        opacity: root.page == 2 ? 1.0 : 0.16;
+    }
+    // Knob light: ring and soft halo in the current knob colour.
     Rectangle {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        background: Theme.backdrop;
+        property <length> kx: root.width - Art.w - 12px + Art.w * Art.knob-fx;
+        property <length> ky: root.height - Art.h - 28px + Art.h * Art.knob-fy;
+        x: self.kx - 150px;
+        y: self.ky - 150px;
+        width: 300px;
+        height: 300px;
+        border-radius: 150px;
+        background: @radial-gradient(circle, Theme.accent.with-alpha(root.page == 2 ? 0.55 : 0.12) 0%, Theme.accent.with-alpha(0.0) 70%);
+    }
+    Rectangle {
+        property <length> kx: root.width - Art.w - 12px + Art.w * Art.knob-fx;
+        property <length> ky: root.height - Art.h - 28px + Art.h * Art.knob-fy;
+        x: self.kx - Art.w * Art.ring-r;
+        y: self.ky - Art.w * Art.ring-r;
+        width: Art.w * Art.ring-r * 2;
+        height: Art.w * Art.ring-r * 2;
+        border-radius: Art.w * Art.ring-r;
+        border-width: 3px;
+        border-color: Theme.accent.with-alpha(root.page == 2 ? 1.0 : 0.3);
     }
 
     Timer {
@@ -690,12 +757,74 @@ export component MainWindow inherits Window {
         triggered => { Backend.poll-spectrum(); }
     }
 
-    // Title bar
+    // Nav rail
     Rectangle {
         x: 0px;
         y: 0px;
-        width: parent.width;
-        height: 64px;
+        width: root.rail-w;
+        height: root.height;
+        background: Theme.rail;
+        TouchArea {
+            height: 90px;
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                    Backend.drag-window();
+                }
+            }
+        }
+        Image {
+            x: (parent.width - 34px) / 2;
+            y: 28px;
+            width: 34px;
+            height: 34px;
+            source: @image-url("../../../assets/icon-256.png");
+        }
+        for nav[i] in [
+            { icon: @image-url("../../../assets/icons/headphones.svg"), name: "OUTPUT" },
+            { icon: @image-url("../../../assets/icons/record_voice_over.svg"), name: "MIC" },
+            { icon: @image-url("../../../assets/icons/settings.svg"), name: "SETTINGS" }
+        ]: Rectangle {
+            x: 0px;
+            y: 100px + i * 78px;
+            width: parent.width;
+            height: 72px;
+            background: root.page == i ? Theme.field : (ta.has-hover ? Theme.field.with-alpha(0.5) : transparent);
+            Rectangle {
+                x: 0px;
+                width: 3px;
+                height: parent.height;
+                background: root.page == i ? Theme.accent : transparent;
+            }
+            Image {
+                x: (parent.width - 26px) / 2;
+                y: 14px;
+                width: 26px;
+                height: 26px;
+                source: nav.icon;
+                colorize: root.page == i ? Theme.accent : Theme.dim;
+            }
+            Text {
+                x: 0px;
+                y: 46px;
+                width: parent.width;
+                text: nav.name;
+                horizontal-alignment: center;
+                color: root.page == i ? Theme.text : Theme.dim;
+                font-family: Theme.label;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 1.2px;
+            }
+            ta := TouchArea { clicked => { root.page = i; Backend.page-changed(i); } }
+        }
+    }
+
+    // Top strip
+    Rectangle {
+        x: root.rail-w;
+        y: 0px;
+        width: root.width - root.rail-w;
+        height: 56px;
         TouchArea {
             pointer-event(e) => {
                 if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
@@ -703,129 +832,113 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        Rectangle {
-            x: 28px;
-            y: 14px;
-            width: 36px;
-            height: 36px;
-            border-radius: 11px;
-            background: Theme.aurora;
-            Image {
-                x: 7px;
-                y: 7px;
-                width: 22px;
-                height: 22px;
-                source: @image-url("../../../assets/icons/headset_mic.svg");
-                colorize: #0e111b;
-            }
-        }
         Text {
-            x: 76px;
-            y: 20px;
-            text: "EposControl";
+            x: 32px;
+            y: 15px;
+            text: ["Output", "Microphone", "Settings"][root.page];
             color: Theme.text;
-            font-size: 18px;
-            font-weight: 700;
+            font-family: Theme.body;
+            font-size: 22px;
+            font-weight: 500;
         }
         HorizontalLayout {
             x: 0px;
-            width: parent.width - 24px;
-            y: 14px;
-            height: 36px;
-            spacing: 10px;
+            width: parent.width - 16px;
+            y: 12px;
+            height: 32px;
+            spacing: 8px;
             alignment: end;
-            if root.page != 2: Dropdown {
+            if root.page != 2: Select {
+                width: 140px;
                 label: Backend.preset-label;
                 items: Backend.preset-names;
-                menu-width: 170px;
+                menu-width: 140px;
                 picked(i) => { Backend.preset-selected(i); }
             }
-            if root.page == 0: IconBtn {
+            if root.page == 0: Btn {
                 icon: @image-url("../../../assets/icons/add_box.svg");
-                tint: Theme.accent;
-                clicked => { Backend.preset-add(); }
+                width: 34px;
+                clicked => { name-pop.show(); }
             }
-            Dropdown {
+            Select {
+                width: 100px;
                 label: "VOLUME";
                 items: [];
                 opened() => { Backend.refresh-volume(); vol.show(); }
             }
-            IconBtn {
+            Btn {
                 icon: @image-url("../../../assets/icons/remove.svg");
-                glyph: 18px;
+                width: 34px;
                 clicked => { Backend.minimize(); }
             }
-            IconBtn {
+            Btn {
                 icon: @image-url("../../../assets/icons/close.svg");
-                glyph: 18px;
+                width: 34px;
                 clicked => { Backend.close(); }
             }
         }
+        Rule { y: parent.height - 1px; }
     }
     vol := PopupWindow {
-        x: root.width - 260px;
-        y: 58px;
-        width: 230px;
-        height: 60px;
+        x: root.width - 270px;
+        y: 50px;
+        width: 240px;
+        height: 56px;
         Rectangle {
-            background: Theme.surface-hi;
-            border-radius: 12px;
+            background: Theme.field-hi;
             border-width: 1px;
-            border-color: Theme.edge;
+            border-color: Theme.rule;
             Slim {
-                x: 18px;
-                y: 16px;
-                width: parent.width - 36px;
+                x: 16px;
+                y: 14px;
+                width: parent.width - 80px;
                 value <=> Backend.volume;
                 changed(v) => { Backend.volume-set(v); }
+            }
+            Mono { x: parent.width - 52px; y: 20px; text: round(Backend.volume * 100) + ""; }
+        }
+    }
+    name-pop := PopupWindow {
+        x: root.width - 360px;
+        y: 50px;
+        width: 330px;
+        height: 96px;
+        Rectangle {
+            background: Theme.field-hi;
+            border-width: 1px;
+            border-color: Theme.rule;
+            Label { x: 16px; y: 12px; text: "SAVE CURRENT CURVE AS PRESET"; }
+            Rectangle {
+                x: 16px;
+                y: 40px;
+                width: 200px;
+                height: 32px;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: Theme.rule;
+                name-input := TextInput {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    color: Theme.text;
+                    font-family: Theme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    text: "";
+                    accepted => { Backend.preset-add(self.text); self.text = ""; }
+                }
+            }
+            Btn {
+                x: 226px;
+                y: 40px;
+                width: 88px;
+                text: "SAVE";
+                clicked => { Backend.preset-add(name-input.text); name-input.text = ""; }
             }
         }
     }
 
     // Pages
-    if root.page == 0: OutputPage { x: 0px; y: 64px; width: parent.width; height: 456px; }
-    if root.page == 1: MicPage { x: 0px; y: 64px; width: parent.width; height: 456px; }
-    if root.page == 2: SettingsPage { x: 0px; y: 64px; width: parent.width; height: 456px; }
-
-    // Bottom navigation
-    Rectangle {
-        x: 0px;
-        y: 528px;
-        width: parent.width;
-        height: 62px;
-        HorizontalLayout {
-            alignment: center;
-            spacing: 14px;
-            for ic[i] in [
-                { icon: @image-url("../../../assets/icons/headphones.svg"), name: "Output" },
-                { icon: @image-url("../../../assets/icons/record_voice_over.svg"), name: "Microphone" },
-                { icon: @image-url("../../../assets/icons/settings.svg"), name: "Settings" }
-            ]: Rectangle {
-                y: 8px;
-                width: 150px;
-                height: 44px;
-                border-radius: 22px;
-                background: root.page == i ? Theme.accent.with-alpha(0.16) : (nav.has-hover ? Theme.text.with-alpha(0.06) : transparent);
-                HorizontalLayout {
-                    alignment: center;
-                    spacing: 10px;
-                    Image {
-                        source: ic.icon;
-                        width: 22px;
-                        height: 22px;
-                        y: (parent.height - self.height) / 2;
-                        colorize: root.page == i ? Theme.accent : Theme.dim;
-                    }
-                    Text {
-                        text: ic.name;
-                        color: root.page == i ? Theme.text : Theme.dim;
-                        font-size: 13px;
-                        font-weight: 700;
-                        vertical-alignment: center;
-                    }
-                }
-                nav := TouchArea { clicked => { root.page = i; Backend.page-changed(i); } }
-            }
-        }
-    }
+    if root.page == 0: OutputPage { x: root.rail-w; y: 56px; width: root.width - root.rail-w; height: root.height - 56px; }
+    if root.page == 1: MicPage { x: root.rail-w; y: 56px; width: root.width - root.rail-w; height: root.height - 56px; }
+    if root.page == 2: SettingsPage { x: root.rail-w; y: 56px; width: root.width - root.rail-w; height: root.height - 56px; }
 }

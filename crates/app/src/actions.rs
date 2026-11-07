@@ -15,7 +15,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 
 pub const NAMES: [&str; 9] = [
     "Do nothing",
-    "Toggle LED red and blue",
+    "Toggle 2.0 and 7.1",
     "Media play or pause",
     "Next track",
     "Previous track",
@@ -25,7 +25,7 @@ pub const NAMES: [&str; 9] = [
     "Press keyboard shortcut",
 ];
 
-pub const TOGGLE_LED: i32 = 1;
+pub const TOGGLE_SURROUND: i32 = 1;
 
 /// True when the action needs a text parameter.
 pub fn needs_param(action: i32) -> bool {

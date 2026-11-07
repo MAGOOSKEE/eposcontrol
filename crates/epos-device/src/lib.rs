@@ -120,3 +120,15 @@ impl Gsx300 {
         }
     }
 }
+
+impl Gsx300 {
+    /// USB serial number string of the device, if present.
+    pub fn serial() -> Option<String> {
+        let api = HidApi::new().ok()?;
+        let serial = api
+            .device_list()
+            .find(|d| d.vendor_id() == VID && d.product_id() == PID)
+            .and_then(|d| d.serial_number().map(|s| s.to_string()));
+        serial
+    }
+}

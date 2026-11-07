@@ -6,8 +6,9 @@ pub struct Config {
     pub action: i32,
     /// Program path, URL or key combo, depending on the action.
     pub param: String,
-    /// Index into `epos_device::Led::ALL`.
-    pub led: i32,
+    /// Knob light: 0 auto (blue in 2.0, red in 7.1), 1 off, 2 red, 3 blue, 4 violet.
+    pub led_mode: i32,
+    pub notifications: bool,
     pub eq: [f32; 9],
     /// 0..3 built in, 4.. custom, -1 for an edited curve.
     pub preset: i32,
@@ -25,7 +26,8 @@ impl Default for Config {
         Self {
             action: 1,
             param: String::new(),
-            led: 1,
+            led_mode: 0,
+            notifications: true,
             eq: [0.0; 9],
             preset: 0,
             customs: Vec::new(),
@@ -63,7 +65,8 @@ impl Config {
             let v = v.trim();
             match k.trim() {
                 "action" => c.action = v.parse().unwrap_or(c.action),
-                "led" => c.led = v.parse().unwrap_or(c.led),
+                "ledmode" => c.led_mode = v.parse().unwrap_or(c.led_mode),
+                "notifications" => c.notifications = v != "0",
                 "param" => c.param = v.to_string(),
                 "eq" => c.eq = parse_eq(v).unwrap_or(c.eq),
                 "preset" => c.preset = v.parse().unwrap_or(c.preset),
@@ -91,9 +94,10 @@ impl Config {
             let _ = std::fs::create_dir_all(dir);
         }
         let mut out = format!(
-            "action={}\nled={}\nparam={}\neq={}\npreset={}\nsurround={}\nreverb={}\nvoice={}\ngate={}\nnc={}\n",
+            "action={}\nledmode={}\nnotifications={}\nparam={}\neq={}\npreset={}\nsurround={}\nreverb={}\nvoice={}\ngate={}\nnc={}\n",
             self.action,
-            self.led,
+            self.led_mode,
+            self.notifications as u8,
             self.param.replace(['\r', '\n'], " "),
             fmt_eq(&self.eq),
             self.preset,
@@ -107,5 +111,25 @@ impl Config {
             out.push_str(&format!("custom={}|{}\n", n.replace(['|', '\n', '\r'], " "), fmt_eq(eq)));
         }
         let _ = std::fs::write(p, out);
+    }
+}
+
+impl Config {
+    /// The light the knob should show right now.
+    pub fn effective_led(&self) -> epos_device::Led {
+        use epos_device::Led;
+        match self.led_mode {
+            1 => Led::Off,
+            2 => Led::Red,
+            3 => Led::Blue,
+            4 => Led::Purple,
+            _ => {
+                if self.surround {
+                    Led::Red
+                } else {
+                    Led::Blue
+                }
+            }
+        }
     }
 }

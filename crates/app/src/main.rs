@@ -3,6 +3,7 @@
 mod actions;
 mod apo;
 mod audio;
+mod audiotest;
 mod config;
 mod presets;
 
@@ -10,12 +11,12 @@ use apo::Apo;
 use config::Config;
 use epos_device::{Gsx300, Led};
 use slint::winit_030::WinitWindowAccessor;
-use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
-use std::cell::RefCell;
+use slint::{Color, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -41,22 +42,22 @@ impl Hw {
 }
 
 fn tray_icon_image() -> Icon {
-    const N: u32 = 32;
-    let mut px = vec![0u8; (N * N * 4) as usize];
-    let c = (N as f32 - 1.0) / 2.0;
-    for y in 0..N {
-        for x in 0..N {
-            let d = ((x as f32 - c).powi(2) + (y as f32 - c).powi(2)).sqrt();
-            let i = ((y * N + x) * 4) as usize;
-            if d <= 15.5 {
-                let ring = (10.0..13.0).contains(&d) && y < 18;
-                let cup = (x < 9 || x > 22) && y > 16 && y < 27 && d < 15.0;
-                let (r, g, b) = if ring || cup { (255, 255, 255) } else { (30, 150, 140) };
-                px[i..i + 4].copy_from_slice(&[r, g, b, 255]);
-            }
-        }
+    let rgba = include_bytes!("../../../assets/tray-32.rgba").to_vec();
+    Icon::from_rgba(rgba, 32, 32).expect("icon")
+}
+
+fn knob_color(led: Led) -> Color {
+    match led {
+        Led::Off => Color::from_rgb_u8(0x9a, 0xa0, 0xaa),
+        Led::Red => Color::from_rgb_u8(0xff, 0x45, 0x3a),
+        Led::Blue => Color::from_rgb_u8(0x3b, 0x8c, 0xff),
+        Led::Purple => Color::from_rgb_u8(0xb0, 0x5c, 0xff),
     }
-    Icon::from_rgba(px, N, N).expect("icon")
+}
+
+fn fmt_time(secs: f32) -> String {
+    let s = secs.max(0.0) as u32;
+    format!("{:02}:{:02}", s / 60, s % 60)
 }
 
 fn autolaunch() -> Option<auto_launch::AutoLaunch> {
@@ -71,17 +72,15 @@ fn autolaunch() -> Option<auto_launch::AutoLaunch> {
 
 fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg: Shared) {
     std::thread::spawn(move || {
-        let push = |connected: bool, led: Led| {
+        let push_connected = |connected: bool| {
             let ui = ui.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui.upgrade() {
-                    let be = ui.global::<Backend>();
-                    be.set_connected(connected);
-                    be.set_led_index(led.index());
+                    ui.global::<Backend>().set_connected(connected);
                 }
             });
         };
-        let current_led = || Led::from_index(cfg.lock().unwrap().led);
+        let current_led = || cfg.lock().unwrap().effective_led();
         let mut dev: Option<Gsx300> = None;
         loop {
             let Some(d) = dev.as_ref() else {
@@ -89,10 +88,10 @@ fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg
                     Ok(d) => {
                         let _ = d.set_led(current_led());
                         dev = Some(d);
-                        push(true, current_led());
+                        push_connected(true);
                     }
                     Err(_) => {
-                        push(false, current_led());
+                        push_connected(false);
                         let _ = rx.recv_timeout(Duration::from_secs(2));
                     }
                 }
@@ -109,15 +108,13 @@ fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg
                             let c = cfg.lock().unwrap();
                             (c.action, c.param.clone())
                         };
-                        if action == actions::TOGGLE_LED {
-                            let next = if current_led() == Led::Red { Led::Blue } else { Led::Red };
-                            {
-                                let mut c = cfg.lock().unwrap();
-                                c.led = next.index();
-                                c.save();
-                            }
-                            lost |= d.set_led(next).is_err();
-                            push(true, next);
+                        if action == actions::TOGGLE_SURROUND {
+                            let ui = ui.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui.upgrade() {
+                                    ui.global::<Backend>().invoke_toggle_surround();
+                                }
+                            });
                         } else {
                             actions::run(action, &param);
                         }
@@ -127,7 +124,7 @@ fn spawn_device_thread(ui: slint::Weak<MainWindow>, rx: mpsc::Receiver<Cmd>, cfg
             }
             if lost {
                 dev = None;
-                push(false, current_led());
+                push_connected(false);
             }
         }
     });
@@ -173,10 +170,11 @@ fn main() {
     let cfg: Shared = Arc::new(Mutex::new(Config::load()));
     let ui = MainWindow::new().expect("window");
     let hw = Rc::new(Hw(RefCell::new(None)));
+    let (tx, rx) = mpsc::channel::<Cmd>();
 
     // Debounced save so dragging sliders does not write the file continuously.
     let save_timer = Rc::new(Timer::default());
-    let schedule_save = {
+    let schedule_save: Rc<dyn Fn()> = {
         let cfg = cfg.clone();
         let t = save_timer.clone();
         Rc::new(move || {
@@ -199,6 +197,7 @@ fn main() {
     be.set_preset_names(ModelRc::from(names_model.clone()));
     be.set_action_names(ModelRc::new(VecModel::from(action_names)));
     be.set_version(env!("CARGO_PKG_VERSION").into());
+    be.set_serial(Gsx300::serial().unwrap_or_else(|| "n/a".into()).into());
     be.set_playback_name(audio::device_name(false).unwrap_or_else(|| "Not found".into()).into());
     be.set_recording_name(audio::device_name(true).unwrap_or_else(|| "Not found".into()).into());
     be.set_gain(audio::capture_volume().unwrap_or(1.0));
@@ -219,6 +218,33 @@ fn main() {
         })
     };
 
+    // Push the knob light to the device and tint the UI with it.
+    let apply_led: Rc<dyn Fn()> = {
+        let (cfg, tx, w) = (cfg.clone(), tx.clone(), ui.as_weak());
+        Rc::new(move || {
+            let led = cfg.lock().unwrap().effective_led();
+            let _ = tx.send(Cmd::SetLed(led));
+            if let Some(ui) = w.upgrade() {
+                ui.global::<Backend>().set_knob_color(knob_color(led));
+            }
+        })
+    };
+
+    // Single place that changes the sound mode: driver, UI, knob light, saved state.
+    let apply_surround: Rc<dyn Fn(bool)> = {
+        let (cfg, hw, w, save, led) =
+            (cfg.clone(), hw.clone(), ui.as_weak(), schedule_save.clone(), apply_led.clone());
+        Rc::new(move |on: bool| {
+            cfg.lock().unwrap().surround = on;
+            hw.with(|a| a.set_surround(on));
+            if let Some(ui) = w.upgrade() {
+                ui.global::<Backend>().set_surround(on);
+            }
+            led();
+            save();
+        })
+    };
+
     {
         let c = cfg.lock().unwrap();
         eq_model.set_vec(c.eq.to_vec());
@@ -229,9 +255,11 @@ fn main() {
         be.set_nc(c.nc);
         be.set_action_index(c.action);
         be.set_action_param(c.param.clone().into());
-        be.set_led_index(c.led);
+        be.set_led_mode(c.led_mode);
+        be.set_notifications(c.notifications);
         be.set_param_visible(actions::needs_param(c.action));
         be.set_param_hint(actions::param_hint(c.action).into());
+        be.set_knob_color(knob_color(c.effective_led()));
     }
     refresh_presets();
 
@@ -273,50 +301,56 @@ fn main() {
         });
     }
     {
-        let (cfg, hw, eq_model, save, rp, w) = (
+        let (cfg, hw, eq_model, save, rp, w, surround) = (
             cfg.clone(),
             hw.clone(),
             eq_model.clone(),
             schedule_save.clone(),
             refresh_presets.clone(),
             ui.as_weak(),
+            apply_surround.clone(),
         );
         be.on_preset_selected(move |i| {
-            let mut c = cfg.lock().unwrap();
-            if (0..4).contains(&i) {
-                let p = &presets::BUILTIN[i as usize];
-                c.eq = p.eq;
-                c.surround = p.surround;
-                c.reverb = p.reverb;
-            } else if let Some((_, eq)) = c.customs.get((i - 4) as usize) {
-                c.eq = *eq;
-            } else {
-                return;
-            }
-            c.preset = i;
-            let c2 = c.clone();
-            drop(c);
-            eq_model.set_vec(c2.eq.to_vec());
+            let (eq, surround_on, reverb) = {
+                let mut c = cfg.lock().unwrap();
+                if (0..4).contains(&i) {
+                    let p = &presets::BUILTIN[i as usize];
+                    c.eq = p.eq;
+                    c.reverb = p.reverb;
+                    c.preset = i;
+                    (c.eq, Some(p.surround), c.reverb)
+                } else if let Some((_, eq)) = c.customs.get((i - 4) as usize).cloned() {
+                    c.eq = eq;
+                    c.preset = i;
+                    (c.eq, None, c.reverb)
+                } else {
+                    return;
+                }
+            };
+            eq_model.set_vec(eq.to_vec());
             if let Some(ui) = w.upgrade() {
-                let be = ui.global::<Backend>();
-                be.set_surround(c2.surround);
-                be.set_reverb(c2.reverb);
+                ui.global::<Backend>().set_reverb(reverb);
             }
             hw.with(|a| {
-                a.set_speaker_eq(&c2.eq);
-                a.set_surround(c2.surround);
-                a.set_reverb(c2.reverb);
+                a.set_speaker_eq(&eq);
+                a.set_reverb(reverb);
             });
+            if let Some(on) = surround_on {
+                surround(on);
+            }
             rp();
             save();
         });
     }
     {
         let (cfg, save, rp) = (cfg.clone(), schedule_save.clone(), refresh_presets.clone());
-        be.on_preset_add(move || {
+        be.on_preset_add(move |name| {
             {
                 let mut c = cfg.lock().unwrap();
-                let name = format!("CUSTOM {}", c.customs.len() + 1);
+                let mut name = name.trim().to_uppercase();
+                if name.is_empty() {
+                    name = format!("CUSTOM {}", c.customs.len() + 1);
+                }
                 let eq = c.eq;
                 c.customs.push((name, eq));
                 c.preset = 3 + c.customs.len() as i32;
@@ -326,11 +360,14 @@ fn main() {
         });
     }
     {
-        let (cfg, hw, save) = (cfg.clone(), hw.clone(), schedule_save.clone());
-        be.on_surround_set(move |on| {
-            cfg.lock().unwrap().surround = on;
-            hw.with(|a| a.set_surround(on));
-            save();
+        let surround = apply_surround.clone();
+        be.on_surround_set(move |on| surround(on));
+    }
+    {
+        let (cfg, surround) = (cfg.clone(), apply_surround.clone());
+        be.on_toggle_surround(move || {
+            let next = !cfg.lock().unwrap().surround;
+            surround(next);
         });
     }
     {
@@ -339,6 +376,42 @@ fn main() {
             cfg.lock().unwrap().reverb = v;
             hw.with(|a| a.set_reverb(v));
             save();
+        });
+    }
+
+    // Sound test through the default playback device.
+    {
+        let timer = Rc::new(Timer::default());
+        let w = ui.as_weak();
+        be.on_test_toggle(move || {
+            let Some(ui) = w.upgrade() else { return };
+            let be = ui.global::<Backend>();
+            if be.get_test_playing() {
+                audiotest::stop_playback();
+                timer.stop();
+                be.set_test_playing(false);
+                be.set_test_progress(0.0);
+                be.set_test_time("00:00".into());
+            } else {
+                audiotest::play_sound_test();
+                be.set_test_playing(true);
+                let start = Instant::now();
+                let (w2, t2) = (w.clone(), timer.clone());
+                timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+                    let Some(ui) = w2.upgrade() else { return };
+                    let be = ui.global::<Backend>();
+                    let e = start.elapsed().as_secs_f32();
+                    if e >= audiotest::SOUND_TEST_SECS {
+                        t2.stop();
+                        be.set_test_playing(false);
+                        be.set_test_progress(0.0);
+                        be.set_test_time("00:00".into());
+                    } else {
+                        be.set_test_progress(e / audiotest::SOUND_TEST_SECS);
+                        be.set_test_time(fmt_time(e).into());
+                    }
+                });
+            }
         });
     }
 
@@ -383,6 +456,81 @@ fn main() {
         });
     }
 
+    // Mic test: record from the default input, then play back.
+    {
+        let timer = Rc::new(Timer::default());
+        let rec_len = Rc::new(Cell::new(0.0f32));
+        let (w, t, len) = (ui.as_weak(), timer.clone(), rec_len.clone());
+        be.on_mic_test_record(move || {
+            let Some(ui) = w.upgrade() else { return };
+            let be = ui.global::<Backend>();
+            audiotest::mic_record_start();
+            be.set_mic_test_state(1);
+            let start = Instant::now();
+            let (w2, t2, len2) = (w.clone(), t.clone(), len.clone());
+            t.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+                let Some(ui) = w2.upgrade() else { return };
+                let be = ui.global::<Backend>();
+                let e = start.elapsed().as_secs_f32();
+                if e >= audiotest::MIC_TEST_MAX_SECS || be.get_mic_test_state() != 1 {
+                    t2.stop();
+                    if be.get_mic_test_state() == 1 {
+                        audiotest::mic_record_stop();
+                        len2.set(e);
+                        be.set_mic_test_state(2);
+                    }
+                } else {
+                    be.set_mic_test_progress(e / audiotest::MIC_TEST_MAX_SECS);
+                    be.set_mic_test_time(fmt_time(e).into());
+                }
+            });
+        });
+        let (w, t, len) = (ui.as_weak(), timer.clone(), rec_len.clone());
+        be.on_mic_test_stop(move || {
+            let Some(ui) = w.upgrade() else { return };
+            let be = ui.global::<Backend>();
+            t.stop();
+            match be.get_mic_test_state() {
+                1 => {
+                    audiotest::mic_record_stop();
+                    be.set_mic_test_state(2);
+                    be.set_mic_test_progress(0.0);
+                }
+                3 => {
+                    audiotest::stop_playback();
+                    be.set_mic_test_state(2);
+                    be.set_mic_test_progress(0.0);
+                }
+                _ => {}
+            }
+            be.set_mic_test_time(fmt_time(len.get()).into());
+        });
+        let (w, t, len) = (ui.as_weak(), timer.clone(), rec_len.clone());
+        be.on_mic_test_play(move || {
+            let Some(ui) = w.upgrade() else { return };
+            let be = ui.global::<Backend>();
+            audiotest::mic_play();
+            be.set_mic_test_state(3);
+            let start = Instant::now();
+            let (w2, t2, len2) = (w.clone(), t.clone(), len.clone());
+            t.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+                let Some(ui) = w2.upgrade() else { return };
+                let be = ui.global::<Backend>();
+                let e = start.elapsed().as_secs_f32();
+                if e >= len2.get() + 0.2 || be.get_mic_test_state() != 3 {
+                    t2.stop();
+                    if be.get_mic_test_state() == 3 {
+                        be.set_mic_test_state(2);
+                    }
+                    be.set_mic_test_progress(0.0);
+                } else {
+                    be.set_mic_test_progress(e / len2.get().max(0.1));
+                    be.set_mic_test_time(fmt_time(e).into());
+                }
+            });
+        });
+    }
+
     // Volume popup.
     be.on_volume_set(move |v| audio::set_render_volume(v));
     {
@@ -395,12 +543,18 @@ fn main() {
     }
 
     // Settings page.
-    let (tx, rx) = mpsc::channel();
+    {
+        let (cfg, save, led) = (cfg.clone(), schedule_save.clone(), apply_led.clone());
+        be.on_led_mode_selected(move |i| {
+            cfg.lock().unwrap().led_mode = i;
+            led();
+            save();
+        });
+    }
     {
         let (cfg, save) = (cfg.clone(), schedule_save.clone());
-        be.on_led_selected(move |i| {
-            cfg.lock().unwrap().led = i;
-            let _ = tx.send(Cmd::SetLed(Led::from_index(i)));
+        be.on_notifications_toggled(move |on| {
+            cfg.lock().unwrap().notifications = on;
             save();
         });
     }
